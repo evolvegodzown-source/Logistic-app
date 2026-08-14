@@ -9,7 +9,7 @@ from datetime import datetime
 # ----------------------------------------------------------------------------
 # PATH CONFIGURATION
 # ----------------------------------------------------------------------------
-DATA_PATH = r"https://drugstock-my.sharepoint.com/personal/it_drugstoc_com/Documents/OPERATIONS/LOGISTICS%20DASH/Logistics_DB.xlsx"
+DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=vEJSx2&download=1"
 IMAGE_PATH = r"C:\Users\IT\OneDrive - DrugStoc\OPERATIONS\LOGISTICS DASH\images (1).png"
 
 # ----------------------------------------------------------------------------
