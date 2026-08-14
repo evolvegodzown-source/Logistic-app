@@ -142,14 +142,48 @@ else:
 st.sidebar.markdown("<span style='font-size:0.8rem; opacity:0.8;'>Rx Cold-Chain & Distribution Operations</span>", unsafe_allow_html=True)
 
 # Manual Cache Clear Button
-if st.sidebar.button("🔄 Refresh Data Now"):
-    st.cache_data.clear()
-    st.rerun()
+# ----------------------------------------------------------------------------
+# DATA LOADING WITH HTTP HEADERS & CACHE (ttl=300)
+# ----------------------------------------------------------------------------
+@st.cache_data(ttl=300, show_spinner="Fetching live logistics data from SharePoint...")
+def load_data(path=None, uploaded_file=None):
+    if uploaded_file is not None:
+        return pd.read_excel(uploaded_file)
+    
+    # Custom browser User-Agent header to bypass SharePoint 403 blocks
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    response = requests.get(path, headers=headers, timeout=25)
+    response.raise_for_status()
+    
+    return pd.read_excel(io.BytesIO(response.content))
 
-st.sidebar.markdown("---")
+def find_col(df, candidates):
+    """Safely match column headers even if Excel contains numbers/dates in headers."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return None
+        
+    # Safely convert all column names to string
+    cols_lower = {str(c).lower().strip(): c for c in df.columns}
+    
+    # 1. Exact match pass
+    for cand in candidates:
+        cand_str = str(cand).lower().strip()
+        if cand_str in cols_lower:
+            return cols_lower[cand_str]
+            
+    # 2. Substring match pass
+    for cand in candidates:
+        cand_str = str(cand).lower().strip()
+        for col in df.columns:
+            if cand_str in str(col).lower().strip():
+                return col
+                
+    return None
 
-uploaded = st.sidebar.file_uploader("Upload Logistics_DB.xlsx (override)", type=["xlsx", "xls"])
-
+# Load Raw Data
 df_raw = None
 load_error = None
 try:
@@ -157,16 +191,15 @@ try:
 except Exception as e:
     load_error = e
 
-if df_raw is None:
+if df_raw is None or not isinstance(df_raw, pd.DataFrame):
     st.error(
-        f"Could not load dataset from SharePoint link.\n\n"
-        f"**Error Details:** {load_error}\n\n"
-        "**Troubleshooting:**\n"
-        "1. Ensure the SharePoint link allows 'Anyone with the link can view' without password/login prompts.\n"
-        "2. Alternatively, upload `Logistics_DB.xlsx` manually using the file uploader in the sidebar."
+        f"Unable to read the dataset from SharePoint.\n\n"
+        f"**Details:** {load_error}\n\n"
+        "**Quick Fix:** Use the file uploader in the sidebar to select `Logistics_DB.xlsx` from your computer."
     )
     st.stop()
 
+# Clean raw column names
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
 # ----------------------------------------------------------------------------
@@ -187,12 +220,6 @@ auto = {
     "delivery_time": find_col(df_raw, ["Delivery Time", "Time Delivered", "Arrival Time", "Time In"]),
     "duration":      find_col(df_raw, ["Shipping Duration", "Delivery Duration", "Duration", "Lead Time"]),
 }
-
-with st.sidebar.expander("⚙️ Data Column Mapping", expanded=any(v is None for k, v in auto.items() if k not in ("ship_date", "deliv_date", "duration", "dispatch_time", "delivery_time"))):
-    options = ["(none)"] + list(df_raw.columns)
-
-    def picker(label, key):
-        default = auto[key] if auto[key] in df_raw.columns else "(none)"
         idx = options.index(default) if default in options else 0
         choice = st.selectbox(label, options, index=idx, key=f"map_{key}")
         return None if choice == "(none)" else choice
