@@ -261,7 +261,27 @@ auto = {
             "CTN",
         ],
     ),
-    "date": find_col(df_raw, ["Order Date", "Date", "Dispatch Date"]),
+    "created_date": find_col(
+        df_raw,
+        [
+            "Created Date",
+            "Creation Date",
+            "Order Date",
+            "Date Created",
+            "Date",
+            "Dispatch Date",
+        ],
+    ),
+    "created_time": find_col(
+        df_raw,
+        [
+            "Created Time",
+            "Creation Time",
+            "Order Time",
+            "Time Created",
+            "Create Time",
+        ],
+    ),
     "region": find_col(df_raw, ["Region", "Zone", "State", "Territory"]),
     "status": find_col(df_raw, ["Delivery Status", "Status"]),
     "captain": find_col(
@@ -272,7 +292,7 @@ auto = {
         df_raw, ["Order Type", "Type", "Category", "Channel", "Order_Type"]
     ),
     "ship_date": find_col(
-        df_raw, ["Ship Date", "Dispatch Date", "Pickup Date", "Date"]
+        df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"]
     ),
     "dispatch_time": find_col(
         df_raw,
@@ -289,25 +309,6 @@ auto = {
     ),
     "delivery_time": find_col(
         df_raw, ["Delivery Time", "Time Delivered", "Arrival Time", "Time In"]
-    ),
-    "duration": find_col(
-        df_raw,
-        ["Shipping Duration", "Delivery Duration", "Duration", "Lead Time"],
-    ),
-    "tat": find_col(
-        df_raw,
-        [
-            "Creation-delivery TAT",
-            "Creation-Delivery TAT",
-            "Creation to Delivery TAT",
-            "Creation-delivery TAT (hrs)",
-            "Creation-Delivery TAT (hrs)",
-            "Creation-delivery TAT(hrs)",
-            "Creation-Delivery TAT(hrs)",
-            "Creation-delivery",
-            "Creation-Delivery",
-            "TAT",
-        ],
     ),
 }
 
@@ -331,7 +332,8 @@ with st.sidebar.expander("🛠️ Data Column Mapping", expanded=False):
     col_client = picker("Facility/Client Name", "client")
     col_value = picker("Order Value (₦)", "value")
     col_qty = picker("Quantity (CTN)", "qty")
-    col_date = picker("Order Date", "date")
+    col_date = picker("Created Date / Order Date", "created_date")
+    col_create_time = picker("Creation Time (Optional)", "created_time")
     col_region = picker("Delivery Zone/Region", "region")
     col_status = picker("Delivery Status", "status")
     col_captain = picker("Logistics Captain", "captain")
@@ -340,8 +342,6 @@ with st.sidebar.expander("🛠️ Data Column Mapping", expanded=False):
     col_dispatch_time = picker("Dispatch Time", "dispatch_time")
     col_deliv = picker("Delivery Date", "deliv_date")
     col_delivery_time = picker("Delivery Time", "delivery_time")
-    col_duration = picker("Pre-calculated Duration (Optional)", "duration")
-    col_tat = picker("Creation-delivery TAT (hrs)", "tat")
 
 required_missing = [
     n
@@ -349,7 +349,7 @@ required_missing = [
         ("Client Name", col_client),
         ("Order Value", col_value),
         ("Qty CTN", col_qty),
-        ("Order Date", col_date),
+        ("Created/Order Date", col_date),
         ("Region", col_region),
         ("Delivery Status", col_status),
     ]
@@ -379,18 +379,14 @@ df["Week Label"] = (
 df[col_value] = pd.to_numeric(df[col_value], errors="coerce").fillna(0)
 df[col_qty] = pd.to_numeric(df[col_qty], errors="coerce").fillna(0)
 
-# Process Creation-delivery TAT column
-if col_tat and col_tat in df.columns:
-    df["Creation_Delivery_TAT"] = pd.to_numeric(df[col_tat], errors="coerce")
-else:
-    df["Creation_Delivery_TAT"] = np.nan
-
 
 def build_timestamp(data_df, date_c, time_c):
+    """Combines a date column and an optional time column into a single datetime pandas Series."""
     if not date_c or date_c not in data_df.columns:
         return pd.Series(pd.NaT, index=data_df.index)
 
     dates = pd.to_datetime(data_df[date_c], errors="coerce")
+
     if time_c and time_c in data_df.columns:
         times = (
             data_df[time_c]
@@ -403,25 +399,34 @@ def build_timestamp(data_df, date_c, time_c):
     return dates
 
 
+# Construct full Timestamps
+df["Created_DT"] = build_timestamp(df, col_date, col_create_time)
+df["Delivery_DT"] = build_timestamp(df, col_deliv, col_delivery_time)
+
 dispatch_date_col = (
     col_ship if (col_ship and col_ship in df.columns) else col_date
 )
 df["Dispatch_DT"] = build_timestamp(df, dispatch_date_col, col_dispatch_time)
-df["Delivery_DT"] = build_timestamp(df, col_deliv, col_delivery_time)
 
+# ----------------------------------------------------------------------------
+# TAT & DURATION CALCULATIONS (Created_DT to Delivery_DT)
+# ----------------------------------------------------------------------------
 if col_deliv and col_deliv in df.columns:
+    # Creation to Delivery TAT in hours
+    tat_hrs = (df["Delivery_DT"] - df["Created_DT"]).dt.total_seconds() / 3600.0
+    df["Creation_Delivery_TAT"] = tat_hrs.apply(
+        lambda x: x if (pd.notna(x) and x >= 0) else np.nan
+    )
+
+    # Dispatch to Delivery Duration in hours
     duration_hrs = (
         df["Delivery_DT"] - df["Dispatch_DT"]
     ).dt.total_seconds() / 3600.0
-    duration_hrs = duration_hrs.apply(
+    df["Dispatch Duration (hrs)"] = duration_hrs.apply(
         lambda x: x if (pd.notna(x) and x >= 0) else np.nan
     )
-    df["Dispatch Duration (hrs)"] = duration_hrs
-elif col_duration and col_duration in df.columns:
-    df["Dispatch Duration (hrs)"] = (
-        pd.to_numeric(df[col_duration], errors="coerce") * 24.0
-    )
 else:
+    df["Creation_Delivery_TAT"] = np.nan
     df["Dispatch Duration (hrs)"] = np.nan
 
 df[col_status] = df[col_status].astype(str).str.strip().str.title()
@@ -716,7 +721,7 @@ with tab_captains:
             "Delivery Rate %", ascending=False
         ).iloc[0]
         fastest = cap_summary.sort_values(
-            "Avg_Duration_Hrs", ascending=True
+            "Avg_TAT_Hrs", ascending=True
         ).iloc[0]
 
         m1, m2, m3, m4 = st.columns(4)
@@ -728,11 +733,11 @@ with tab_captains:
             f"{best_delivery['Delivery Rate %']:.1f}%",
         )
         m4.metric(
-            "Fastest Delivery Duration",
+            "Fastest Creation-Delivery TAT",
             f"{fastest[col_captain]}",
             (
-                f"{fastest['Avg_Duration_Hrs']:.1f} hrs"
-                if pd.notna(fastest["Avg_Duration_Hrs"])
+                f"{fastest['Avg_TAT_Hrs']:.1f} hrs"
+                if pd.notna(fastest["Avg_TAT_Hrs"])
                 else "N/A"
             ),
         )
