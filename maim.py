@@ -9,7 +9,7 @@ from datetime import datetime
 # ----------------------------------------------------------------------------
 # PATH CONFIGURATION
 # ----------------------------------------------------------------------------
-DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=EFEH53&download=1"
+DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=MFF4su&download=1"
 IMAGE_PATH = r"C:\Users\IT\OneDrive - DrugStoc\OPERATIONS\LOGISTICS DASH\images (1).png"
 CLOUD_IMAGE_PATH = "images (1).png"  # Fallback for Streamlit Cloud deployment
 
