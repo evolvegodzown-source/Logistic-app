@@ -122,7 +122,6 @@ def load_data(path=None, uploaded_file=None):
     if uploaded_file is not None:
         return pd.read_excel(uploaded_file)
 
-    # Custom browser User-Agent header to bypass SharePoint 403 blocks
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -230,12 +229,19 @@ auto = {
     "qty": find_col(
         df_raw,
         [
+            "N0 OF CTN'S",
+            "NO OF CTN'S",
+            "N0 OF CTNS",
+            "NO OF CTNS",
+            "NO. OF CTNS",
             "Qty CTN",
             "Quantity CTN",
             "Qty (CTN)",
             "Quantity",
             "Qty",
             "Cartons",
+            "Carton",
+            "CTN",
         ],
     ),
     "date": find_col(df_raw, ["Order Date", "Date", "Dispatch Date"]),
