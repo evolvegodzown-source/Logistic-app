@@ -1,10 +1,13 @@
+import io
 import os
-import streamlit as st
-import pandas as pd
+from datetime import datetime
+
 import numpy as np
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from datetime import datetime
+import requests
+import streamlit as st
 
 # ----------------------------------------------------------------------------
 # PATH CONFIGURATION
@@ -108,28 +111,58 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ----------------------------------------------------------------------------
-# DATA LOADING WITH 5-MINUTE AUTO-REFRESH CACHE (ttl=300)
-# ----------------------------------------------------------------------------
-import io
-import requests
 
-@st.cache_data(ttl=300, show_spinner="Fetching live logistics data from SharePoint...")
+# ----------------------------------------------------------------------------
+# DATA LOADING WITH HTTP HEADERS & CACHE (ttl=300)
+# ----------------------------------------------------------------------------
+@st.cache_data(
+    ttl=300, show_spinner="Fetching live logistics data from SharePoint..."
+)
 def load_data(path=None, uploaded_file=None):
     if uploaded_file is not None:
         return pd.read_excel(uploaded_file)
-    
-    # User-Agent header mimics a real web browser to bypass SharePoint 403 bot block
+
+    # Custom browser User-Agent header to bypass SharePoint 403 blocks
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
     }
-    
-    response = requests.get(path, headers=headers, timeout=20)
-    response.raise_for_status()  # Check if HTTP request was successful
-    
+
+    response = requests.get(path, headers=headers, timeout=25)
+    response.raise_for_status()
+
     return pd.read_excel(io.BytesIO(response.content))
+
+
+def find_col(df, candidates):
+    """Safely match column headers even if Excel contains numbers/dates in headers."""
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return None
+
+    # Safely convert all column names to string
+    cols_lower = {str(c).lower().strip(): c for c in df.columns}
+
+    # 1. Exact match pass
+    for cand in candidates:
+        cand_str = str(cand).lower().strip()
+        if cand_str in cols_lower:
+            return cols_lower[cand_str]
+
+    # 2. Substring match pass
+    for cand in candidates:
+        cand_str = str(cand).lower().strip()
+        for col in df.columns:
+            if cand_str in str(col).lower().strip():
+                return col
+
+    return None
+
+
 # ----------------------------------------------------------------------------
-# SIDEBAR HEADER & LOGO INTEGRATION
+# SIDEBAR HEADER & FILE UPLOADER
 # ----------------------------------------------------------------------------
 if os.path.exists(IMAGE_PATH):
     st.sidebar.image(IMAGE_PATH, use_container_width=True)
@@ -139,55 +172,30 @@ else:
     st.sidebar.title("💊 DrugStoc Logistics")
     st.sidebar.caption("Pharmaceutical Supply Chain")
 
-st.sidebar.markdown("<span style='font-size:0.8rem; opacity:0.8;'>Rx Cold-Chain & Distribution Operations</span>", unsafe_allow_html=True)
+st.sidebar.markdown(
+    "<span style='font-size:0.8rem; opacity:0.8;'>Rx Cold-Chain & Distribution Operations</span>",
+    unsafe_allow_html=True,
+)
 
-# Manual Cache Clear Button
+st.sidebar.markdown("---")
+st.sidebar.subheader("📂 Data Source")
+uploaded = st.sidebar.file_uploader(
+    "Upload Logistics_DB.xlsx manually", type=["xlsx", "xls"]
+)
+
+if st.sidebar.button("🔄 Refresh Data Cache"):
+    st.cache_data.clear()
+    st.rerun()
+
 # ----------------------------------------------------------------------------
-# DATA LOADING WITH HTTP HEADERS & CACHE (ttl=300)
+# LOAD RAW DATA & SAFE COLUMN DETECT
 # ----------------------------------------------------------------------------
-@st.cache_data(ttl=300, show_spinner="Fetching live logistics data from SharePoint...")
-def load_data(path=None, uploaded_file=None):
-    if uploaded_file is not None:
-        return pd.read_excel(uploaded_file)
-    
-    # Custom browser User-Agent header to bypass SharePoint 403 blocks
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-    }
-    
-    response = requests.get(path, headers=headers, timeout=25)
-    response.raise_for_status()
-    
-    return pd.read_excel(io.BytesIO(response.content))
-
-def find_col(df, candidates):
-    """Safely match column headers even if Excel contains numbers/dates in headers."""
-    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
-        return None
-        
-    # Safely convert all column names to string
-    cols_lower = {str(c).lower().strip(): c for c in df.columns}
-    
-    # 1. Exact match pass
-    for cand in candidates:
-        cand_str = str(cand).lower().strip()
-        if cand_str in cols_lower:
-            return cols_lower[cand_str]
-            
-    # 2. Substring match pass
-    for cand in candidates:
-        cand_str = str(cand).lower().strip()
-        for col in df.columns:
-            if cand_str in str(col).lower().strip():
-                return col
-                
-    return None
-
-# Load Raw Data
 df_raw = None
 load_error = None
 try:
-    df_raw = load_data(DATA_PATH if uploaded is None else None, uploaded)
+    df_raw = load_data(
+        DATA_PATH if uploaded is None else None, uploaded_file=uploaded
+    )
 except Exception as e:
     load_error = e
 
@@ -199,52 +207,121 @@ if df_raw is None or not isinstance(df_raw, pd.DataFrame):
     )
     st.stop()
 
-# Clean raw column names
+# Clean raw column names to string
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-# ----------------------------------------------------------------------------
-# COLUMN AUTO-DETECTION & MAPPING
-# ----------------------------------------------------------------------------
+# Auto-detect column headers
 auto = {
-    "client":        find_col(df_raw, ["Client Name", "Client", "Customer Name", "Customer", "Pharmacy", "Hospital"]),
-    "value":         find_col(df_raw, ["Order Value", "Value", "Amount", "Sales Value", "Total Value"]),
-    "qty":           find_col(df_raw, ["Qty CTN", "Quantity CTN", "Qty (CTN)", "Quantity", "Qty", "Cartons"]),
-    "date":          find_col(df_raw, ["Order Date", "Date", "Dispatch Date"]),
-    "region":        find_col(df_raw, ["Region", "Zone", "State", "Territory"]),
-    "status":        find_col(df_raw, ["Delivery Status", "Status"]),
-    "captain":       find_col(df_raw, ["Captain", "Rider", "Driver", "Captain Name", "Dispatcher"]),
-    "order_type":    find_col(df_raw, ["Order Type", "Type", "Category", "Channel", "Order_Type"]),
-    "ship_date":     find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date", "Date"]),
-    "dispatch_time": find_col(df_raw, ["Dispatch Time", "Ship Time", "Time Dispatched", "Departure Time", "Time Out"]),
-    "deliv_date":    find_col(df_raw, ["Delivery Date", "Delivered Date", "Date Delivered"]),
-    "delivery_time": find_col(df_raw, ["Delivery Time", "Time Delivered", "Arrival Time", "Time In"]),
-    "duration":      find_col(df_raw, ["Shipping Duration", "Delivery Duration", "Duration", "Lead Time"]),
+    "client": find_col(
+        df_raw,
+        [
+            "Client Name",
+            "Client",
+            "Customer Name",
+            "Customer",
+            "Pharmacy",
+            "Hospital",
+        ],
+    ),
+    "value": find_col(
+        df_raw,
+        ["Order Value", "Value", "Amount", "Sales Value", "Total Value"],
+    ),
+    "qty": find_col(
+        df_raw,
+        [
+            "Qty CTN",
+            "Quantity CTN",
+            "Qty (CTN)",
+            "Quantity",
+            "Qty",
+            "Cartons",
+        ],
+    ),
+    "date": find_col(df_raw, ["Order Date", "Date", "Dispatch Date"]),
+    "region": find_col(df_raw, ["Region", "Zone", "State", "Territory"]),
+    "status": find_col(df_raw, ["Delivery Status", "Status"]),
+    "captain": find_col(
+        df_raw,
+        ["Captain", "Rider", "Driver", "Captain Name", "Dispatcher"],
+    ),
+    "order_type": find_col(
+        df_raw, ["Order Type", "Type", "Category", "Channel", "Order_Type"]
+    ),
+    "ship_date": find_col(
+        df_raw, ["Ship Date", "Dispatch Date", "Pickup Date", "Date"]
+    ),
+    "dispatch_time": find_col(
+        df_raw,
+        [
+            "Dispatch Time",
+            "Ship Time",
+            "Time Dispatched",
+            "Departure Time",
+            "Time Out",
+        ],
+    ),
+    "deliv_date": find_col(
+        df_raw, ["Delivery Date", "Delivered Date", "Date Delivered"]
+    ),
+    "delivery_time": find_col(
+        df_raw, ["Delivery Time", "Time Delivered", "Arrival Time", "Time In"]
+    ),
+    "duration": find_col(
+        df_raw,
+        ["Shipping Duration", "Delivery Duration", "Duration", "Lead Time"],
+    ),
 }
-        idx = options.index(default) if default in options else 0
-        choice = st.selectbox(label, options, index=idx, key=f"map_{key}")
+
+# ----------------------------------------------------------------------------
+# SIDEBAR COLUMN MAPPING PICKER UI
+# ----------------------------------------------------------------------------
+st.sidebar.markdown("---")
+with st.sidebar.expander("🛠️ Data Column Mapping", expanded=False):
+    all_cols = ["(none)"] + list(df_raw.columns)
+
+    def picker(label, key):
+        default = auto.get(key)
+        idx = (
+            all_cols.index(default)
+            if (default and default in all_cols)
+            else 0
+        )
+        choice = st.selectbox(label, all_cols, index=idx, key=f"map_{key}")
         return None if choice == "(none)" else choice
 
-    col_client        = picker("Facility/Client Name", "client")
-    col_value         = picker("Order Value (₦)", "value")
-    col_qty           = picker("Quantity (CTN)", "qty")
-    col_date          = picker("Order Date", "date")
-    col_region        = picker("Delivery Zone/Region", "region")
-    col_status        = picker("Delivery Status", "status")
-    col_captain       = picker("Logistics Captain", "captain")
-    col_order_type    = picker("Order Type", "order_type")
-    col_ship          = picker("Dispatch Date", "ship_date")
+    col_client = picker("Facility/Client Name", "client")
+    col_value = picker("Order Value (₦)", "value")
+    col_qty = picker("Quantity (CTN)", "qty")
+    col_date = picker("Order Date", "date")
+    col_region = picker("Delivery Zone/Region", "region")
+    col_status = picker("Delivery Status", "status")
+    col_captain = picker("Logistics Captain", "captain")
+    col_order_type = picker("Order Type", "order_type")
+    col_ship = picker("Dispatch Date", "ship_date")
     col_dispatch_time = picker("Dispatch Time", "dispatch_time")
-    col_deliv         = picker("Delivery Date", "deliv_date")
+    col_deliv = picker("Delivery Date", "deliv_date")
     col_delivery_time = picker("Delivery Time", "delivery_time")
-    col_duration      = picker("Pre-calculated Duration (Optional)", "duration")
+    col_duration = picker("Pre-calculated Duration (Optional)", "duration")
 
-required_missing = [n for n, v in [("Client Name", col_client), ("Order Value", col_value),
-                                    ("Qty CTN", col_qty), ("Order Date", col_date),
-                                    ("Region", col_region), ("Delivery Status", col_status)]
-                     if v is None]
+required_missing = [
+    n
+    for n, v in [
+        ("Client Name", col_client),
+        ("Order Value", col_value),
+        ("Qty CTN", col_qty),
+        ("Order Date", col_date),
+        ("Region", col_region),
+        ("Delivery Status", col_status),
+    ]
+    if v is None
+]
+
 if required_missing:
-    st.error(f"Missing required mapping for: **{', '.join(required_missing)}**. "
-             "Please assign them under 'Data Column Mapping' in the sidebar.")
+    st.error(
+        f"Missing required mapping for: **{', '.join(required_missing)}**. "
+        "Please assign them under 'Data Column Mapping' in the sidebar."
+    )
     st.stop()
 
 df = df_raw.copy()
@@ -256,10 +333,13 @@ df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
 df = df.dropna(subset=[col_date])
 df["Week"] = df[col_date].dt.isocalendar().week.astype(int)
 df["Year"] = df[col_date].dt.year.astype(int)
-df["Week Label"] = "W" + df["Week"].astype(str).str.zfill(2) + " - " + df["Year"].astype(str)
+df["Week Label"] = (
+    "W" + df["Week"].astype(str).str.zfill(2) + " - " + df["Year"].astype(str)
+)
 
 df[col_value] = pd.to_numeric(df[col_value], errors="coerce").fillna(0)
 df[col_qty] = pd.to_numeric(df[col_qty], errors="coerce").fillna(0)
+
 
 def build_timestamp(data_df, date_c, time_c):
     if not date_c or date_c not in data_df.columns:
@@ -267,21 +347,35 @@ def build_timestamp(data_df, date_c, time_c):
 
     dates = pd.to_datetime(data_df[date_c], errors="coerce")
     if time_c and time_c in data_df.columns:
-        times = data_df[time_c].astype(str).str.strip().replace(["nan", "None", "<NaT>", ""], "00:00:00")
+        times = (
+            data_df[time_c]
+            .astype(str)
+            .str.strip()
+            .replace(["nan", "None", "<NaT>", ""], "00:00:00")
+        )
         combined_str = dates.dt.strftime("%Y-%m-%d") + " " + times
         return pd.to_datetime(combined_str, errors="coerce")
     return dates
 
-dispatch_date_col = col_ship if (col_ship and col_ship in df.columns) else col_date
+
+dispatch_date_col = (
+    col_ship if (col_ship and col_ship in df.columns) else col_date
+)
 df["Dispatch_DT"] = build_timestamp(df, dispatch_date_col, col_dispatch_time)
 df["Delivery_DT"] = build_timestamp(df, col_deliv, col_delivery_time)
 
 if col_deliv and col_deliv in df.columns:
-    duration_hrs = (df["Delivery_DT"] - df["Dispatch_DT"]).dt.total_seconds() / 3600.0
-    duration_hrs = duration_hrs.apply(lambda x: x if (pd.notna(x) and x >= 0) else np.nan)
+    duration_hrs = (
+        df["Delivery_DT"] - df["Dispatch_DT"]
+    ).dt.total_seconds() / 3600.0
+    duration_hrs = duration_hrs.apply(
+        lambda x: x if (pd.notna(x) and x >= 0) else np.nan
+    )
     df["Dispatch Duration (hrs)"] = duration_hrs
 elif col_duration and col_duration in df.columns:
-    df["Dispatch Duration (hrs)"] = pd.to_numeric(df[col_duration], errors="coerce") * 24.0
+    df["Dispatch Duration (hrs)"] = (
+        pd.to_numeric(df[col_duration], errors="coerce") * 24.0
+    )
 else:
     df["Dispatch Duration (hrs)"] = np.nan
 
@@ -295,19 +389,31 @@ df["Is Delivered"] = df[col_status].isin(DELIVERED_LABELS)
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎛️ Operations Filters")
 
-week_options = ["All Weeks"] + sorted(df["Week Label"].unique(), key=lambda w: (w.split(" - ")[1], w.split(" - ")[0]), reverse=True)
+week_options = ["All Weeks"] + sorted(
+    df["Week Label"].unique(),
+    key=lambda w: (w.split(" - ")[1], w.split(" - ")[0]),
+    reverse=True,
+)
 selected_week = st.sidebar.selectbox("Filter by Delivery Week", week_options)
 
-region_options = ["All Regions"] + sorted(df[col_region].dropna().unique().tolist())
+region_options = ["All Regions"] + sorted(
+    df[col_region].dropna().unique().tolist()
+)
 selected_region = st.sidebar.selectbox("Filter by Region / Hub", region_options)
 
 if col_order_type and col_order_type in df.columns:
-    order_type_options = ["All Order Types"] + sorted(df[col_order_type].dropna().astype(str).unique().tolist())
+    order_type_options = ["All Order Types"] + sorted(
+        df[col_order_type].dropna().astype(str).unique().tolist()
+    )
 else:
     order_type_options = ["All Order Types"]
-selected_order_type = st.sidebar.selectbox("Filter by Order Type", order_type_options)
+selected_order_type = st.sidebar.selectbox(
+    "Filter by Order Type", order_type_options
+)
 
-status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
+status_options = ["All Statuses"] + sorted(
+    df[col_status].dropna().unique().tolist()
+)
 selected_status = st.sidebar.selectbox("Filter by Order Status", status_options)
 
 filtered = df.copy()
@@ -318,28 +424,49 @@ if selected_week != "All Weeks":
 if selected_region != "All Regions":
     filtered = filtered[filtered[col_region] == selected_region]
 
-if selected_order_type != "All Order Types" and col_order_type and col_order_type in filtered.columns:
-    filtered = filtered[filtered[col_order_type].astype(str) == selected_order_type]
+if (
+    selected_order_type != "All Order Types"
+    and col_order_type
+    and col_order_type in filtered.columns
+):
+    filtered = filtered[
+        filtered[col_order_type].astype(str) == selected_order_type
+    ]
 
 if selected_status != "All Statuses":
     filtered = filtered[filtered[col_status] == selected_status]
 
 if filtered.empty:
-    st.warning("No pharmaceutical delivery records match the current filter criteria.")
+    st.warning(
+        "No pharmaceutical delivery records match the current filter criteria."
+    )
     st.stop()
 
 st.sidebar.markdown("---")
-st.sidebar.caption(f"📦 Total Records: **{len(df):,}** | Filtered Result: **{len(filtered):,}**")
+st.sidebar.caption(
+    f"📦 Total Records: **{len(df):,}** | Filtered Result: **{len(filtered):,}**"
+)
 
 # ----------------------------------------------------------------------------
 # MAIN DASHBOARD HEADER
 # ----------------------------------------------------------------------------
-st.markdown('<div class="pharma-badge">HEALTHCARE SUPPLY CHAIN MONITOR</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="pharma-badge">HEALTHCARE SUPPLY CHAIN MONITOR</div>',
+    unsafe_allow_html=True,
+)
 st.title("🚚 DrugStoc Logistics Dashboard")
-st.caption(f"Live Operations Tracker | Last Refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')} | "
-           f"Week: **{selected_week}** | Zone: **{selected_region}** | Type: **{selected_order_type}**")
+st.caption(
+    f"Live Operations Tracker | Last Refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')} | "
+    f"Week: **{selected_week}** | Zone: **{selected_region}** | Type: **{selected_order_type}**"
+)
 
-tab_overview, tab_captains, tab_data = st.tabs(["📊 Executive Overview", "🧑‍✈️ Captain & Rider Efficiency", "🗂️ Audit & Raw Data"])
+tab_overview, tab_captains, tab_data = st.tabs(
+    [
+        "📊 Executive Overview",
+        "🧑‍✈️ Captain & Rider Efficiency",
+        "🗂️ Audit & Raw Data",
+    ]
+)
 
 # ============================================================================
 # TAB 1: EXECUTIVE OVERVIEW
@@ -350,7 +477,9 @@ with tab_overview:
     avg_duration_hrs = filtered["Dispatch Duration (hrs)"].mean()
     total_qty = filtered[col_qty].sum()
     delivered_count = filtered["Is Delivered"].sum()
-    delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
+    delivery_pct = (
+        (delivered_count / total_orders * 100) if total_orders else 0
+    )
     avg_order_value = total_value / total_orders if total_orders else 0
     unique_clients = filtered[col_client].nunique()
 
@@ -366,7 +495,11 @@ with tab_overview:
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Dispensed Orders", f"{total_orders:,}")
     c2.metric("Total Order Value", f"₦{total_value:,.0f}")
-    c3.metric("Fulfillment Rate", f"{delivery_pct:.1f}%", f"{int(delivered_count)}/{int(total_orders)} Delivered")
+    c3.metric(
+        "Fulfillment Rate",
+        f"{delivery_pct:.1f}%",
+        f"{int(delivered_count)}/{int(total_orders)} Delivered",
+    )
     c4.metric("Average Delivery Duration", duration_str)
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -381,16 +514,25 @@ with tab_overview:
 
     with col_a:
         st.subheader("Distribution Volume by Region")
-        region_summary = filtered.groupby(col_region).agg(
-            Orders=(col_client, "count"), Value=(col_value, "sum")
-        ).reset_index().sort_values("Orders", ascending=False)
+        region_summary = (
+            filtered.groupby(col_region)
+            .agg(Orders=(col_client, "count"), Value=(col_value, "sum"))
+            .reset_index()
+            .sort_values("Orders", ascending=False)
+        )
 
         fig = px.bar(
-            region_summary, x=col_region, y="Orders", color=col_region,
-            text="Orders", template="plotly_white",
-            color_discrete_sequence=px.colors.qualitative.Dark2
+            region_summary,
+            x=col_region,
+            y="Orders",
+            color=col_region,
+            text="Orders",
+            template="plotly_white",
+            color_discrete_sequence=px.colors.qualitative.Dark2,
         )
-        fig.update_layout(showlegend=False, height=380, margin=dict(t=20, b=20, l=10, r=10))
+        fig.update_layout(
+            showlegend=False, height=380, margin=dict(t=20, b=20, l=10, r=10)
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     with col_b:
@@ -399,9 +541,17 @@ with tab_overview:
         status_summary.columns = ["Status", "Count"]
 
         fig = px.pie(
-            status_summary, names="Status", values="Count", hole=0.5, 
+            status_summary,
+            names="Status",
+            values="Count",
+            hole=0.5,
             template="plotly_white",
-            color_discrete_sequence=["#00A86B", "#1E3E62", "#E63946", "#FFB703"]
+            color_discrete_sequence=[
+                "#00A86B",
+                "#1E3E62",
+                "#E63946",
+                "#FFB703",
+            ],
         )
         fig.update_layout(height=380, margin=dict(t=20, b=20, l=10, r=10))
         st.plotly_chart(fig, use_container_width=True)
@@ -410,37 +560,68 @@ with tab_overview:
 
     with col_c:
         st.subheader("Weekly Distribution Value Trend")
-        week_summary = filtered.groupby(["Year", "Week", "Week Label"]).agg(
-            Value=(col_value, "sum"), Orders=(col_client, "count")
-        ).reset_index().sort_values(["Year", "Week"])
+        week_summary = (
+            filtered.groupby(["Year", "Week", "Week Label"])
+            .agg(Value=(col_value, "sum"), Orders=(col_client, "count"))
+            .reset_index()
+            .sort_values(["Year", "Week"])
+        )
 
         fig = px.line(
-            week_summary, x="Week Label", y="Value", markers=True, template="plotly_white",
-            line_shape="spline"
+            week_summary,
+            x="Week Label",
+            y="Value",
+            markers=True,
+            template="plotly_white",
+            line_shape="spline",
         )
         fig.update_traces(line_color="#00A86B", line_width=3)
-        fig.update_layout(height=380, xaxis_title="Week", yaxis_title="Value (₦)")
+        fig.update_layout(
+            height=380, xaxis_title="Week", yaxis_title="Value (₦)"
+        )
         st.plotly_chart(fig, use_container_width=True)
 
     with col_d:
         st.subheader("Weekly Carton Volume (CTN)")
-        qty_week = filtered.groupby("Week Label")[col_qty].sum().reset_index()
+        qty_week = (
+            filtered.groupby("Week Label")[col_qty].sum().reset_index()
+        )
 
-        fig2 = px.area(qty_week, x="Week Label", y=col_qty, template="plotly_white")
-        fig2.update_traces(fillcolor="rgba(0, 168, 107, 0.25)", line_color="#00A86B")
-        fig2.update_layout(height=380, xaxis_title="Week", yaxis_title="Quantity (Cartons)")
+        fig2 = px.area(
+            qty_week, x="Week Label", y=col_qty, template="plotly_white"
+        )
+        fig2.update_traces(
+            fillcolor="rgba(0, 168, 107, 0.25)", line_color="#00A86B"
+        )
+        fig2.update_layout(
+            height=380, xaxis_title="Week", yaxis_title="Quantity (Cartons)"
+        )
         st.plotly_chart(fig2, use_container_width=True)
 
     st.subheader("Top 10 Health Facilities / Accounts by Value")
-    top_clients = filtered.groupby(col_client).agg(
-        Orders=(col_client, "count"), Value=(col_value, "sum")
-    ).reset_index().sort_values("Value", ascending=False).head(10)
+    top_clients = (
+        filtered.groupby(col_client)
+        .agg(Orders=(col_client, "count"), Value=(col_value, "sum"))
+        .reset_index()
+        .sort_values("Value", ascending=False)
+        .head(10)
+    )
 
     fig = px.bar(
-        top_clients, x="Value", y=col_client, orientation="h", text="Orders",
-        template="plotly_white", color="Value", color_continuous_scale="Tealgrn"
+        top_clients,
+        x="Value",
+        y=col_client,
+        orientation="h",
+        text="Orders",
+        template="plotly_white",
+        color="Value",
+        color_continuous_scale="Tealgrn",
     )
-    fig.update_layout(height=420, yaxis={"categoryorder": "total ascending"}, coloraxis_showscale=False)
+    fig.update_layout(
+        height=420,
+        yaxis={"categoryorder": "total ascending"},
+        coloraxis_showscale=False,
+    )
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================================
@@ -448,31 +629,56 @@ with tab_overview:
 # ============================================================================
 with tab_captains:
     if col_captain is None:
-        st.info("No Delivery Captain/Rider column mapped. Select your rider column in sidebar settings.")
+        st.info(
+            "No Delivery Captain/Rider column mapped. Select your rider column in sidebar settings."
+        )
     else:
         cap_df = filtered.dropna(subset=[col_captain])
         st.subheader("Rider & Captain Performance Metrics")
 
-        cap_summary = cap_df.groupby(col_captain).agg(
-            Total_Orders=(col_client, "count"),
-            Total_Value=(col_value, "sum"),
-            Total_Qty=(col_qty, "sum"),
-            Avg_Duration_Hrs=("Dispatch Duration (hrs)", "mean"),
-            Delivered=("Is Delivered", "sum"),
-        ).reset_index()
-        cap_summary["Delivery Rate %"] = (cap_summary["Delivered"] / cap_summary["Total_Orders"] * 100).round(1)
+        cap_summary = (
+            cap_df.groupby(col_captain)
+            .agg(
+                Total_Orders=(col_client, "count"),
+                Total_Value=(col_value, "sum"),
+                Total_Qty=(col_qty, "sum"),
+                Avg_Duration_Hrs=("Dispatch Duration (hrs)", "mean"),
+                Delivered=("Is Delivered", "sum"),
+            )
+            .reset_index()
+        )
+        cap_summary["Delivery Rate %"] = (
+            cap_summary["Delivered"] / cap_summary["Total_Orders"] * 100
+        ).round(1)
         cap_summary = cap_summary.sort_values("Total_Orders", ascending=False)
 
-        best_captain = cap_summary.iloc[0][col_captain] if not cap_summary.empty else "N/A"
-        best_delivery = cap_summary.sort_values("Delivery Rate %", ascending=False).iloc[0]
-        fastest = cap_summary.sort_values("Avg_Duration_Hrs", ascending=True).iloc[0]
+        best_captain = (
+            cap_summary.iloc[0][col_captain] if not cap_summary.empty else "N/A"
+        )
+        best_delivery = cap_summary.sort_values(
+            "Delivery Rate %", ascending=False
+        ).iloc[0]
+        fastest = cap_summary.sort_values(
+            "Avg_Duration_Hrs", ascending=True
+        ).iloc[0]
 
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Active Fleet Captains", f"{cap_summary.shape[0]:,}")
         m2.metric("Highest Dispatch Captain", str(best_captain))
-        m3.metric("Top Reliability Score", f"{best_delivery[col_captain]}", f"{best_delivery['Delivery Rate %']:.1f}%")
-        m4.metric("Fastest Delivery Duration", f"{fastest[col_captain]}",
-                  f"{fastest['Avg_Duration_Hrs']:.1f} hrs" if pd.notna(fastest['Avg_Duration_Hrs']) else "N/A")
+        m3.metric(
+            "Top Reliability Score",
+            f"{best_delivery[col_captain]}",
+            f"{best_delivery['Delivery Rate %']:.1f}%",
+        )
+        m4.metric(
+            "Fastest Delivery Duration",
+            f"{fastest[col_captain]}",
+            (
+                f"{fastest['Avg_Duration_Hrs']:.1f} hrs"
+                if pd.notna(fastest["Avg_Duration_Hrs"])
+                else "N/A"
+            ),
+        )
 
         st.markdown("### ")
         col_e, col_f = st.columns(2)
@@ -480,39 +686,56 @@ with tab_captains:
         with col_e:
             st.subheader("Total Orders Handled per Captain")
             fig = px.bar(
-                cap_summary, x=col_captain, y="Total_Orders", text="Total_Orders",
-                color="Total_Orders", template="plotly_white", color_continuous_scale="Viridis"
+                cap_summary,
+                x=col_captain,
+                y="Total_Orders",
+                text="Total_Orders",
+                color="Total_Orders",
+                template="plotly_white",
+                color_continuous_scale="Viridis",
             )
-            fig.update_layout(height=400, coloraxis_showscale=False, xaxis_tickangle=-30)
+            fig.update_layout(
+                height=400, coloraxis_showscale=False, xaxis_tickangle=-30
+            )
             st.plotly_chart(fig, use_container_width=True)
 
         with col_f:
             st.subheader("Successful Delivery Rate (%)")
             fig = px.bar(
-                cap_summary.sort_values("Delivery Rate %"), x="Delivery Rate %", y=col_captain,
-                orientation="h", text="Delivery Rate %", template="plotly_white",
-                color="Delivery Rate %", color_continuous_scale="Emrld"
+                cap_summary.sort_values("Delivery Rate %"),
+                x="Delivery Rate %",
+                y=col_captain,
+                orientation="h",
+                text="Delivery Rate %",
+                template="plotly_white",
+                color="Delivery Rate %",
+                color_continuous_scale="Emrld",
             )
             fig.update_layout(height=400, coloraxis_showscale=False)
             st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Comprehensive Captain Scorecard")
-        display_cap = cap_summary.rename(columns={
-            col_captain: "Captain / Rider", 
-            "Total_Orders": "Total Dispatches", 
-            "Total_Value": "Order Value",
-            "Total_Qty": "Volume (CTN)", 
-            "Avg_Duration_Hrs": "Avg Delivery Duration (Hrs)",
-            "Delivered": "Completed Deliveries"
-        })
+        display_cap = cap_summary.rename(
+            columns={
+                col_captain: "Captain / Rider",
+                "Total_Orders": "Total Dispatches",
+                "Total_Value": "Order Value",
+                "Total_Qty": "Volume (CTN)",
+                "Avg_Duration_Hrs": "Avg Delivery Duration (Hrs)",
+                "Delivered": "Completed Deliveries",
+            }
+        )
         st.dataframe(
-            display_cap.style.format({
-                "Order Value": "₦{:,.0f}", 
-                "Volume (CTN)": "{:,.0f}",
-                "Avg Delivery Duration (Hrs)": "{:.1f}", 
-                "Delivery Rate %": "{:.1f}%"
-            }),
-            use_container_width=True, hide_index=True
+            display_cap.style.format(
+                {
+                    "Order Value": "₦{:,.0f}",
+                    "Volume (CTN)": "{:,.0f}",
+                    "Avg Delivery Duration (Hrs)": "{:.1f}",
+                    "Delivery Rate %": "{:.1f}%",
+                }
+            ),
+            use_container_width=True,
+            hide_index=True,
         )
 
 # ============================================================================
