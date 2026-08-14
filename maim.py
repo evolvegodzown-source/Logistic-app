@@ -20,7 +20,7 @@ CLOUD_IMAGE_PATH = "images (1).png"  # Fallback for Streamlit Cloud deployment
 # PAGE CONFIG
 # ----------------------------------------------------------------------------
 st.set_page_config(
-    page_title="DrugStoc Pharma Logistics Dashboard",
+    page_title="DrugStoc | Logistics Control Tower",
     page_icon="💊",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -33,96 +33,174 @@ st.markdown(
     """
     <style>
         :root {
-            --pharma-navy: #0B192C;
-            --pharma-blue: #1E3E62;
-            --pharma-teal: #00A86B;
-            --pharma-bg: #F4F7F9;
-            --card-border: #CBD5E1;
+            --ds-navy: #071A2B;
+            --ds-navy-2: #0D2942;
+            --ds-teal: #00A878;
+            --ds-teal-soft: #E8F8F2;
+            --ds-green: #16A34A;
+            --ds-amber: #F59E0B;
+            --ds-red: #DC2626;
+            --ds-bg: #F5F8FA;
+            --ds-border: #D9E2EA;
+            --ds-text: #102A43;
+            --ds-muted: #627D98;
         }
 
-        .main { background-color: var(--pharma-bg); }
+        .stApp {
+            background:
+                radial-gradient(circle at 92% 2%, rgba(0,168,120,.08), transparent 22rem),
+                linear-gradient(180deg, #F8FBFC 0%, #F3F7F9 100%);
+        }
 
-        /* High-Visibility Metric Cards */
+        .block-container {
+            max-width: 1500px;
+            padding-top: 1.2rem;
+            padding-bottom: 3rem;
+        }
+
+        h1, h2, h3 {
+            color: var(--ds-navy) !important;
+            font-weight: 800 !important;
+        }
+
+        section[data-testid="stSidebar"] {
+            background: linear-gradient(180deg, #061827 0%, #0B243A 100%) !important;
+            border-right: 1px solid rgba(255,255,255,.08);
+        }
+
+        section[data-testid="stSidebar"] * {
+            color: #F4F8FB !important;
+        }
+
+        .ds-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+            padding: 1.15rem 1.35rem;
+            margin: .2rem 0 1.2rem 0;
+            border-radius: 18px;
+            background: linear-gradient(135deg, #071A2B 0%, #0E3554 68%, #006D57 100%);
+            box-shadow: 0 10px 30px rgba(7,26,43,.16);
+            color: white;
+        }
+
+        .ds-header-title {
+            font-size: 1.65rem;
+            font-weight: 850;
+            line-height: 1.1;
+        }
+
+        .ds-header-subtitle {
+            margin-top: .35rem;
+            color: rgba(255,255,255,.78);
+            font-size: .9rem;
+        }
+
+        .ds-header-chip {
+            padding: .45rem .8rem;
+            border: 1px solid rgba(255,255,255,.22);
+            border-radius: 999px;
+            background: rgba(255,255,255,.09);
+            color: #fff;
+            font-size: .76rem;
+            font-weight: 750;
+            white-space: nowrap;
+        }
+
         div[data-testid="stMetric"] {
-            background-color: #FFFFFF !important;
-            border: 1px solid #CBD5E1 !important;
-            border-top: 4px solid #00A86B !important;
-            border-radius: 10px !important;
-            padding: 16px 18px !important;
-            box-shadow: 0 4px 10px rgba(0, 0, 0, 0.06) !important;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+            background: rgba(255,255,255,.96) !important;
+            border: 1px solid var(--ds-border) !important;
+            border-top: 4px solid var(--ds-teal) !important;
+            border-radius: 15px !important;
+            padding: 1rem 1.05rem !important;
+            min-height: 116px;
+            box-shadow: 0 7px 20px rgba(16,42,67,.07) !important;
+            transition: all .2s ease;
         }
+
         div[data-testid="stMetric"]:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 14px rgba(0, 0, 0, 0.1) !important;
+            transform: translateY(-3px);
+            box-shadow: 0 12px 28px rgba(16,42,67,.12) !important;
         }
 
-        /* Force dark high-contrast text on white metric cards in Dark & Light mode */
         div[data-testid="stMetric"] * {
-            color: #0F172A !important;
+            color: var(--ds-text) !important;
         }
 
-        div[data-testid="stMetricLabel"],
         div[data-testid="stMetricLabel"] *,
         div[data-testid="stMetricLabel"] label,
-        div[data-testid="stMetricLabel"] p,
-        div[data-testid="stMetricLabel"] div { 
-            font-weight: 800 !important; 
-            color: #1E293B !important; 
-            font-size: 0.85rem !important;
+        div[data-testid="stMetricLabel"] p {
+            font-weight: 750 !important;
+            color: var(--ds-muted) !important;
+            font-size: .76rem !important;
             text-transform: uppercase !important;
-            letter-spacing: 0.5px !important;
+            letter-spacing: .55px !important;
         }
 
-        div[data-testid="stMetricValue"], 
-        div[data-testid="stMetricValue"] *,
-        div[data-testid="stMetricValue"] div { 
-            font-size: 1.6rem !important; 
-            font-weight: 800 !important;
-            color: #0B192C !important; 
+        div[data-testid="stMetricValue"] * {
+            font-size: 1.55rem !important;
+            font-weight: 850 !important;
+            color: var(--ds-navy) !important;
         }
 
-        div[data-testid="stMetricDelta"],
-        div[data-testid="stMetricDelta"] * {
-            color: #475569 !important;
-            font-size: 0.8rem !important;
+        .ds-filter-summary {
+            padding: .7rem .9rem;
+            border-radius: 12px;
+            background: rgba(0,168,120,.08);
+            border: 1px solid rgba(0,168,120,.15);
+            color: #0B5D49;
+            font-size: .82rem;
+            margin: .4rem 0 1rem;
         }
 
-        /* Sidebar Dark Theme */
-        section[data-testid="stSidebar"] { 
-            background-color: #0B192C !important; 
-        }
-        section[data-testid="stSidebar"] * { 
-            color: #F1F5F9 !important; 
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 7px;
+            padding: .25rem;
+            background: #EAF0F4;
+            border-radius: 12px;
         }
 
-        /* Headers and Tabs */
-        h1, h2, h3 { color: #0B192C; font-weight: 700; }
-        .block-container { padding-top: 1.2rem; }
-
-        .stTabs [data-baseweb="tab-list"] { gap: 8px; }
         .stTabs [data-baseweb="tab"] {
-            background-color: #ffffff; 
-            border-radius: 8px 8px 0 0;
-            padding: 10px 20px; 
-            border: 1px solid var(--card-border);
-            font-weight: 600;
-            color: #1E293B;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: #00A86B !important;
-            color: #ffffff !important;
+            border-radius: 9px;
+            padding: .6rem 1rem;
+            font-weight: 750;
+            color: #38536B;
         }
 
-        .pharma-badge {
-            background-color: #E6F4EA;
-            color: #00875A;
-            padding: 4px 12px;
-            border-radius: 16px;
-            font-size: 0.8rem;
-            font-weight: 600;
-            display: inline-block;
-            margin-bottom: 8px;
+        .stTabs [aria-selected="true"] {
+            background: #FFFFFF !important;
+            color: var(--ds-teal) !important;
+            box-shadow: 0 3px 10px rgba(16,42,67,.08);
+        }
+
+        div[data-testid="stDataFrame"] {
+            border: 1px solid var(--ds-border);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 5px 16px rgba(16,42,67,.05);
+        }
+
+        .stButton > button,
+        .stDownloadButton > button {
+            border-radius: 9px !important;
+            font-weight: 750 !important;
+        }
+
+        .stDownloadButton > button {
+            background: var(--ds-navy) !important;
+            color: white !important;
+        }
+
+        div[data-testid="stAlert"] {
+            border-radius: 12px;
+        }
+
+        @media (max-width: 900px) {
+            .ds-header {
+                align-items: flex-start;
+                flex-direction: column;
+            }
         }
     </style>
     """,
@@ -178,6 +256,59 @@ def find_col(df, candidates):
 
 
 # ----------------------------------------------------------------------------
+
+# ----------------------------------------------------------------------------
+# VISUAL HELPERS
+# ----------------------------------------------------------------------------
+def polish_plot(fig, height=380):
+    """Apply a consistent DrugStoc visual language to Plotly charts."""
+    fig.update_layout(
+        height=height,
+        template="plotly_white",
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="#FFFFFF",
+        font=dict(family="Inter, Arial, sans-serif", color="#102A43"),
+        margin=dict(t=35, b=45, l=20, r=20),
+        hoverlabel=dict(bgcolor="#071A2B", font_color="white"),
+    )
+    fig.update_xaxes(showgrid=False, linecolor="#D9E2EA", zeroline=False)
+    fig.update_yaxes(gridcolor="#E8EEF2", linecolor="#D9E2EA", zeroline=False)
+    return fig
+
+
+def status_color(status):
+    status = str(status).strip().lower()
+    if status in {"delivered", "complete", "completed", "successful"}:
+        return "#16A34A"
+    if status in {"pending", "processing", "in transit", "out for delivery"}:
+        return "#F59E0B"
+    if status in {"failed", "cancelled", "canceled", "returned", "rejected"}:
+        return "#DC2626"
+    return "#64748B"
+
+
+def style_scorecard(dataframe):
+    """Conditional formatting: green = better, red = slower/lower."""
+    styler = dataframe.style
+
+    if "Delivery Rate %" in dataframe.columns:
+        styler = styler.background_gradient(
+            subset=["Delivery Rate %"], cmap="RdYlGn", vmin=0, vmax=100
+        )
+
+    if "Avg Dispatch Duration (Hrs)" in dataframe.columns:
+        styler = styler.background_gradient(
+            subset=["Avg Dispatch Duration (Hrs)"], cmap="RdYlGn_r"
+        )
+
+    if "Avg Creation-Delivery TAT (Hrs)" in dataframe.columns:
+        styler = styler.background_gradient(
+            subset=["Avg Creation-Delivery TAT (Hrs)"], cmap="RdYlGn_r"
+        )
+
+    return styler
+
+
 # SIDEBAR HEADER & FILE UPLOADER
 # ----------------------------------------------------------------------------
 if os.path.exists(IMAGE_PATH):
@@ -185,11 +316,30 @@ if os.path.exists(IMAGE_PATH):
 elif os.path.exists(CLOUD_IMAGE_PATH):
     st.sidebar.image(CLOUD_IMAGE_PATH, use_container_width=True)
 else:
-    st.sidebar.title("💊 DrugStoc Logistics")
-    st.sidebar.caption("Pharmaceutical Supply Chain")
+    st.sidebar.markdown(
+        """
+        <div style="text-align:center;padding:.6rem 0 1rem;">
+            <div style="font-size:2.4rem;">💊</div>
+            <div style="font-size:1.25rem;font-weight:850;">DrugStoc</div>
+            <div style="font-size:.75rem;opacity:.75;">LOGISTICS CONTROL TOWER</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.sidebar.markdown(
-    "<span style='font-size:0.8rem; opacity:0.8;'>Rx Cold-Chain & Distribution Operations</span>",
+    """
+    <div style="
+        padding:.65rem .8rem;
+        border:1px solid rgba(255,255,255,.12);
+        border-radius:10px;
+        background:rgba(255,255,255,.05);
+        font-size:.76rem;
+        line-height:1.45;">
+        <b>Rx Supply Chain</b><br>
+        Cold-chain • Distribution • Delivery
+    </div>
+    """,
     unsafe_allow_html=True,
 )
 
@@ -501,13 +651,27 @@ st.sidebar.caption(
 # MAIN DASHBOARD HEADER
 # ----------------------------------------------------------------------------
 st.markdown(
-    '<div class="pharma-badge">HEALTHCARE SUPPLY CHAIN MONITOR</div>',
+    f"""
+    <div class="ds-header">
+        <div>
+            <div class="ds-header-title">🚚 DrugStoc Logistics Control Tower</div>
+            <div class="ds-header-subtitle">
+                Live pharmaceutical distribution & fulfillment performance
+            </div>
+        </div>
+        <div class="ds-header-chip">
+            LIVE • {datetime.now().strftime('%d %b %Y, %H:%M')}
+        </div>
+    </div>
+    <div class="ds-filter-summary">
+        <b>Active view:</b>
+        Week: {selected_week} &nbsp;•&nbsp;
+        Region: {selected_region} &nbsp;•&nbsp;
+        Order Type: {selected_order_type} &nbsp;•&nbsp;
+        Status: {selected_status}
+    </div>
+    """,
     unsafe_allow_html=True,
-)
-st.title("🚚 DrugStoc Logistics Dashboard")
-st.caption(
-    f"Live Operations Tracker | Last Refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')} | "
-    f"Week: **{selected_week}** | Zone: **{selected_region}** | Type: **{selected_order_type}**"
 )
 
 tab_overview, tab_captains, tab_data = st.tabs(
@@ -594,6 +758,7 @@ with tab_overview:
         fig.update_layout(
             showlegend=False, height=380, margin=dict(t=20, b=20, l=10, r=10)
         )
+        fig = polish_plot(fig, 380)
         st.plotly_chart(fig, use_container_width=True)
 
     with col_b:
@@ -615,6 +780,7 @@ with tab_overview:
             ],
         )
         fig.update_layout(height=380, margin=dict(t=20, b=20, l=10, r=10))
+        fig = polish_plot(fig, 380)
         st.plotly_chart(fig, use_container_width=True)
 
     col_c, col_d = st.columns(2)
@@ -640,6 +806,7 @@ with tab_overview:
         fig.update_layout(
             height=380, xaxis_title="Week", yaxis_title="Value (₦)"
         )
+        fig = polish_plot(fig, 380)
         st.plotly_chart(fig, use_container_width=True)
 
     with col_d:
@@ -657,6 +824,7 @@ with tab_overview:
         fig2.update_layout(
             height=380, xaxis_title="Week", yaxis_title="Quantity (Cartons)"
         )
+        fig2 = polish_plot(fig2, 380)
         st.plotly_chart(fig2, use_container_width=True)
 
     st.subheader("Top 10 Health Facilities / Accounts by Value")
@@ -683,6 +851,7 @@ with tab_overview:
         yaxis={"categoryorder": "total ascending"},
         coloraxis_showscale=False,
     )
+    fig = polish_plot(fig, 420)
     st.plotly_chart(fig, use_container_width=True)
 
 # ============================================================================
@@ -759,6 +928,7 @@ with tab_captains:
             fig.update_layout(
                 height=400, coloraxis_showscale=False, xaxis_tickangle=-30
             )
+            fig = polish_plot(fig, 400)
             st.plotly_chart(fig, use_container_width=True)
 
         with col_f:
@@ -774,6 +944,7 @@ with tab_captains:
                 color_continuous_scale="Emrld",
             )
             fig.update_layout(height=400, coloraxis_showscale=False)
+            fig = polish_plot(fig, 400)
             st.plotly_chart(fig, use_container_width=True)
 
         st.subheader("Comprehensive Captain Scorecard")
@@ -788,16 +959,18 @@ with tab_captains:
                 "Delivered": "Completed Deliveries",
             }
         )
+        scorecard_style = style_scorecard(display_cap).format(
+            {
+                "Order Value": "₦{:,.0f}",
+                "Volume (CTN)": "{:,.0f}",
+                "Avg Dispatch Duration (Hrs)": "{:.1f}",
+                "Avg Creation-Delivery TAT (Hrs)": "{:.1f}",
+                "Delivery Rate %": "{:.1f}%",
+            }
+        )
+
         st.dataframe(
-            display_cap.style.format(
-                {
-                    "Order Value": "₦{:,.0f}",
-                    "Volume (CTN)": "{:,.0f}",
-                    "Avg Dispatch Duration (Hrs)": "{:.1f}",
-                    "Avg Creation-Delivery TAT (Hrs)": "{:.1f}",
-                    "Delivery Rate %": "{:.1f}%",
-                }
-            ),
+            scorecard_style,
             use_container_width=True,
             hide_index=True,
         )
@@ -807,7 +980,26 @@ with tab_captains:
 # ============================================================================
 with tab_data:
     st.subheader("Filtered Delivery Logs")
-    st.dataframe(filtered, use_container_width=True, height=500)
+
+    def highlight_status(row):
+        styles = [""] * len(row)
+        try:
+            idx = list(row.index).index(col_status)
+            color = status_color(row[col_status])
+            styles[idx] = (
+                f"color: {color}; font-weight: 800; "
+                f"background-color: {color}18;"
+            )
+        except ValueError:
+            pass
+        return styles
+
+    st.dataframe(
+        filtered.style.apply(highlight_status, axis=1),
+        use_container_width=True,
+        height=540,
+        hide_index=True,
+    )
 
     st.download_button(
         "⬇️ Download Filtered Audit Report (CSV)",
@@ -815,3 +1007,24 @@ with tab_data:
         file_name=f"DrugStoc_Logistics_Export_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",
     )
+
+
+# ----------------------------------------------------------------------------
+# FOOTER
+# ----------------------------------------------------------------------------
+st.markdown(
+    """
+    <div style="
+        margin-top:2rem;
+        padding:1rem 0;
+        border-top:1px solid #D9E2EA;
+        text-align:center;
+        color:#627D98;
+        font-size:.74rem;">
+        <b style="color:#0B243A;">DrugStoc Logistics Control Tower</b>
+        &nbsp;•&nbsp; Pharmaceutical Supply Chain Analytics
+        &nbsp;•&nbsp; Built for Operations
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
