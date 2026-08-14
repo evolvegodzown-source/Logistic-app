@@ -10,6 +10,12 @@ from datetime import datetime
 # PATH CONFIGURATION
 # ----------------------------------------------------------------------------
 DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=EFEH53&download=1"
+@st.cache_data(ttl=300, show_spinner="Fetching live logistics data...")
+def load_data(path=None, uploaded_file=None):
+    if uploaded_file is not None:
+        return pd.read_excel(uploaded_file)
+    # Read directly from the cloud Excel link
+    return pd.read_excel(path)
 IMAGE_PATH = r"C:\Users\IT\OneDrive - DrugStoc\OPERATIONS\LOGISTICS DASH\images (1).png"
 
 # ----------------------------------------------------------------------------
