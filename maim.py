@@ -10,13 +10,8 @@ from datetime import datetime
 # PATH CONFIGURATION
 # ----------------------------------------------------------------------------
 DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=EFEH53&download=1"
-@st.cache_data(ttl=300, show_spinner="Fetching live logistics data...")
-def load_data(path=None, uploaded_file=None):
-    if uploaded_file is not None:
-        return pd.read_excel(uploaded_file)
-    # Read directly from the cloud Excel link
-    return pd.read_excel(path)
 IMAGE_PATH = r"C:\Users\IT\OneDrive - DrugStoc\OPERATIONS\LOGISTICS DASH\images (1).png"
+CLOUD_IMAGE_PATH = "images (1).png"  # Fallback for Streamlit Cloud deployment
 
 # ----------------------------------------------------------------------------
 # PAGE CONFIG
@@ -29,12 +24,11 @@ st.set_page_config(
 )
 
 # ----------------------------------------------------------------------------
-# PHARMACEUTICAL BRANDING & CUSTOM CSS WITH HIGH-VISIBILITY KPIs
+# CUSTOM CSS
 # ----------------------------------------------------------------------------
 st.markdown(
     """
     <style>
-        /* Pharma Clean Palette */
         :root {
             --pharma-navy: #0B192C;
             --pharma-blue: #1E3E62;
@@ -45,7 +39,7 @@ st.markdown(
 
         .main { background-color: var(--pharma-bg); }
 
-        /* High-Visibility Metric Cards Design */
+        /* High-Visibility Metric Cards */
         div[data-testid="stMetric"] {
             background-color: #FFFFFF !important;
             border: 1px solid #CBD5E1 !important;
@@ -59,39 +53,32 @@ st.markdown(
             transform: translateY(-2px);
             box-shadow: 0 6px 14px rgba(0, 0, 0, 0.1) !important;
         }
-        
-        /* Pure Black High-Contrast KPI Label & Value Colors */
+
         div[data-testid="stMetricLabel"] > div { 
             font-weight: 800 !important; 
-            color: #000000 !important; /* Pure Black for Maximum Visibility */
+            color: #000000 !important; 
             font-size: 0.9rem !important;
             text-transform: uppercase !important;
             letter-spacing: 0.5px !important;
-        }
-        div[data-testid="stMetricLabel"] label {
-            color: #000000 !important; /* Secondary target for Streamlit label element */
         }
         div[data-testid="stMetricValue"] > div { 
             font-size: 1.7rem !important; 
             font-weight: 800 !important;
             color: #0F172A !important; 
         }
-        div[data-testid="stMetricDelta"] {
-            font-weight: 700 !important;
-        }
 
-        /* Sidebar Medical Dark Theme */
+        /* Sidebar Dark Theme */
         section[data-testid="stSidebar"] { 
             background-color: #0B192C !important; 
         }
         section[data-testid="stSidebar"] * { 
             color: #F1F5F9 !important; 
         }
-        
+
         /* Headers and Tabs */
         h1, h2, h3 { color: #0B192C; font-weight: 700; }
         .block-container { padding-top: 1.2rem; }
-        
+
         .stTabs [data-baseweb="tab-list"] { gap: 8px; }
         .stTabs [data-baseweb="tab"] {
             background-color: #ffffff; 
@@ -105,8 +92,7 @@ st.markdown(
             background-color: #00A86B !important;
             color: #ffffff !important;
         }
-        
-        /* Pharma Badge Header */
+
         .pharma-badge {
             background-color: #E6F4EA;
             color: #00875A;
@@ -123,16 +109,15 @@ st.markdown(
 )
 
 # ----------------------------------------------------------------------------
-# DATA LOADING
+# DATA LOADING WITH 5-MINUTE AUTO-REFRESH CACHE (ttl=300)
 # ----------------------------------------------------------------------------
-@st.cache_data(show_spinner="Loading pharmaceutical distribution records...")
+@st.cache_data(ttl=300, show_spinner="Fetching live logistics data from SharePoint...")
 def load_data(path=None, uploaded_file=None):
     if uploaded_file is not None:
         return pd.read_excel(uploaded_file)
     return pd.read_excel(path)
 
 def find_col(df, candidates):
-    """Best-effort match of a target column against common header variants."""
     cols_lower = {c.lower().strip(): c for c in df.columns}
     for cand in candidates:
         if cand.lower().strip() in cols_lower:
@@ -148,11 +133,19 @@ def find_col(df, candidates):
 # ----------------------------------------------------------------------------
 if os.path.exists(IMAGE_PATH):
     st.sidebar.image(IMAGE_PATH, use_container_width=True)
+elif os.path.exists(CLOUD_IMAGE_PATH):
+    st.sidebar.image(CLOUD_IMAGE_PATH, use_container_width=True)
 else:
     st.sidebar.title("💊 DrugStoc Logistics")
     st.sidebar.caption("Pharmaceutical Supply Chain")
 
 st.sidebar.markdown("<span style='font-size:0.8rem; opacity:0.8;'>Rx Cold-Chain & Distribution Operations</span>", unsafe_allow_html=True)
+
+# Manual Cache Clear Button
+if st.sidebar.button("🔄 Refresh Data Now"):
+    st.cache_data.clear()
+    st.rerun()
+
 st.sidebar.markdown("---")
 
 uploaded = st.sidebar.file_uploader("Upload Logistics_DB.xlsx (override)", type=["xlsx", "xls"])
@@ -166,9 +159,11 @@ except Exception as e:
 
 if df_raw is None:
     st.error(
-        f"Could not load dataset from:\n\n`{DATA_PATH}`\n\n"
-        f"Error Details: {load_error}\n\n"
-        "Please use the file uploader in the sidebar to upload `Logistics_DB.xlsx`."
+        f"Could not load dataset from SharePoint link.\n\n"
+        f"**Error Details:** {load_error}\n\n"
+        "**Troubleshooting:**\n"
+        "1. Ensure the SharePoint link allows 'Anyone with the link can view' without password/login prompts.\n"
+        "2. Alternatively, upload `Logistics_DB.xlsx` manually using the file uploader in the sidebar."
     )
     st.stop()
 
@@ -228,7 +223,7 @@ if required_missing:
 df = df_raw.copy()
 
 # ----------------------------------------------------------------------------
-# DATA CLEANING & TIMESTAMPS FOR DISPATCH DURATION IN HOURS
+# DATA CLEANING & TIMESTAMP PARSING
 # ----------------------------------------------------------------------------
 df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
 df = df.dropna(subset=[col_date])
@@ -239,11 +234,10 @@ df["Week Label"] = "W" + df["Week"].astype(str).str.zfill(2) + " - " + df["Year"
 df[col_value] = pd.to_numeric(df[col_value], errors="coerce").fillna(0)
 df[col_qty] = pd.to_numeric(df[col_qty], errors="coerce").fillna(0)
 
-# Helper function to parse date and time combined
 def build_timestamp(data_df, date_c, time_c):
     if not date_c or date_c not in data_df.columns:
         return pd.Series(pd.NaT, index=data_df.index)
-    
+
     dates = pd.to_datetime(data_df[date_c], errors="coerce")
     if time_c and time_c in data_df.columns:
         times = data_df[time_c].astype(str).str.strip().replace(["nan", "None", "<NaT>", ""], "00:00:00")
@@ -251,19 +245,15 @@ def build_timestamp(data_df, date_c, time_c):
         return pd.to_datetime(combined_str, errors="coerce")
     return dates
 
-# Calculate Dispatch & Delivery Timestamps
 dispatch_date_col = col_ship if (col_ship and col_ship in df.columns) else col_date
 df["Dispatch_DT"] = build_timestamp(df, dispatch_date_col, col_dispatch_time)
 df["Delivery_DT"] = build_timestamp(df, col_deliv, col_delivery_time)
 
-# Calculate Dispatch Duration in Hours
 if col_deliv and col_deliv in df.columns:
     duration_hrs = (df["Delivery_DT"] - df["Dispatch_DT"]).dt.total_seconds() / 3600.0
-    # Clean up unrealistic negative durations
     duration_hrs = duration_hrs.apply(lambda x: x if (pd.notna(x) and x >= 0) else np.nan)
     df["Dispatch Duration (hrs)"] = duration_hrs
 elif col_duration and col_duration in df.columns:
-    # If duration exists in days, convert to hours as fallback
     df["Dispatch Duration (hrs)"] = pd.to_numeric(df[col_duration], errors="coerce") * 24.0
 else:
     df["Dispatch Duration (hrs)"] = np.nan
@@ -273,31 +263,26 @@ DELIVERED_LABELS = {"Delivered", "Complete", "Completed", "Successful"}
 df["Is Delivered"] = df[col_status].isin(DELIVERED_LABELS)
 
 # ----------------------------------------------------------------------------
-# SIDEBAR DROPDOWN FILTERS
+# SIDEBAR FILTERS
 # ----------------------------------------------------------------------------
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎛️ Operations Filters")
 
-# Dropdown Filter 1: Week Selection
 week_options = ["All Weeks"] + sorted(df["Week Label"].unique(), key=lambda w: (w.split(" - ")[1], w.split(" - ")[0]), reverse=True)
 selected_week = st.sidebar.selectbox("Filter by Delivery Week", week_options)
 
-# Dropdown Filter 2: Region Selection
 region_options = ["All Regions"] + sorted(df[col_region].dropna().unique().tolist())
 selected_region = st.sidebar.selectbox("Filter by Region / Hub", region_options)
 
-# Dropdown Filter 3: Order Type Selection
 if col_order_type and col_order_type in df.columns:
     order_type_options = ["All Order Types"] + sorted(df[col_order_type].dropna().astype(str).unique().tolist())
 else:
     order_type_options = ["All Order Types"]
 selected_order_type = st.sidebar.selectbox("Filter by Order Type", order_type_options)
 
-# Dropdown Filter 4: Delivery Status Selection
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
 selected_status = st.sidebar.selectbox("Filter by Order Status", status_options)
 
-# Apply Filter Logic
 filtered = df.copy()
 
 if selected_week != "All Weeks":
@@ -342,7 +327,6 @@ with tab_overview:
     avg_order_value = total_value / total_orders if total_orders else 0
     unique_clients = filtered[col_client].nunique()
 
-    # Format Avg Delivery Duration for KPI
     if pd.notna(avg_duration_hrs):
         if avg_duration_hrs < 24:
             duration_str = f"{avg_duration_hrs:.1f} hrs"
@@ -352,7 +336,6 @@ with tab_overview:
     else:
         duration_str = "N/A"
 
-    # Key Performance Indicators Row 1 (High Visibility)
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Dispensed Orders", f"{total_orders:,}")
     c2.metric("Total Order Value", f"₦{total_value:,.0f}")
@@ -366,8 +349,7 @@ with tab_overview:
     c7.metric("Active Health Facilities", f"{unique_clients:,}")
 
     st.markdown("---")
-    
-    # Analytics Row 1
+
     col_a, col_b = st.columns(2)
 
     with col_a:
@@ -375,7 +357,7 @@ with tab_overview:
         region_summary = filtered.groupby(col_region).agg(
             Orders=(col_client, "count"), Value=(col_value, "sum")
         ).reset_index().sort_values("Orders", ascending=False)
-        
+
         fig = px.bar(
             region_summary, x=col_region, y="Orders", color=col_region,
             text="Orders", template="plotly_white",
@@ -388,7 +370,7 @@ with tab_overview:
         st.subheader("Fulfillment Status Breakdown")
         status_summary = filtered[col_status].value_counts().reset_index()
         status_summary.columns = ["Status", "Count"]
-        
+
         fig = px.pie(
             status_summary, names="Status", values="Count", hole=0.5, 
             template="plotly_white",
@@ -397,7 +379,6 @@ with tab_overview:
         fig.update_layout(height=380, margin=dict(t=20, b=20, l=10, r=10))
         st.plotly_chart(fig, use_container_width=True)
 
-    # Analytics Row 2
     col_c, col_d = st.columns(2)
 
     with col_c:
@@ -405,7 +386,7 @@ with tab_overview:
         week_summary = filtered.groupby(["Year", "Week", "Week Label"]).agg(
             Value=(col_value, "sum"), Orders=(col_client, "count")
         ).reset_index().sort_values(["Year", "Week"])
-        
+
         fig = px.line(
             week_summary, x="Week Label", y="Value", markers=True, template="plotly_white",
             line_shape="spline"
@@ -417,7 +398,7 @@ with tab_overview:
     with col_d:
         st.subheader("Weekly Carton Volume (CTN)")
         qty_week = filtered.groupby("Week Label")[col_qty].sum().reset_index()
-        
+
         fig2 = px.area(qty_week, x="Week Label", y=col_qty, template="plotly_white")
         fig2.update_traces(fillcolor="rgba(0, 168, 107, 0.25)", line_color="#00A86B")
         fig2.update_layout(height=380, xaxis_title="Week", yaxis_title="Quantity (Cartons)")
@@ -427,7 +408,7 @@ with tab_overview:
     top_clients = filtered.groupby(col_client).agg(
         Orders=(col_client, "count"), Value=(col_value, "sum")
     ).reset_index().sort_values("Value", ascending=False).head(10)
-    
+
     fig = px.bar(
         top_clients, x="Value", y=col_client, orientation="h", text="Orders",
         template="plotly_white", color="Value", color_continuous_scale="Tealgrn"
@@ -468,7 +449,7 @@ with tab_captains:
 
         st.markdown("### ")
         col_e, col_f = st.columns(2)
-        
+
         with col_e:
             st.subheader("Total Orders Handled per Captain")
             fig = px.bar(
@@ -513,7 +494,7 @@ with tab_captains:
 with tab_data:
     st.subheader("Filtered Delivery Logs")
     st.dataframe(filtered, use_container_width=True, height=500)
-    
+
     st.download_button(
         "⬇️ Download Filtered Audit Report (CSV)",
         filtered.to_csv(index=False).encode("utf-8"),
