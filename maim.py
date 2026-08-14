@@ -9,7 +9,7 @@ from datetime import datetime
 # ----------------------------------------------------------------------------
 # PATH CONFIGURATION
 # ----------------------------------------------------------------------------
-DATA_PATH = r"C:\Users\IT\OneDrive - DrugStoc\OPERATIONS\LOGISTICS DASH\Logistics_DB.xlsx"
+DATA_PATH = r"C:\Users\IT\OneDrive - DrugStoc\OPERATIONS\LOGISTICS DASH\Logistics_DB"
 IMAGE_PATH = r"C:\Users\IT\OneDrive - DrugStoc\OPERATIONS\LOGISTICS DASH\images (1).png"
 
 # ----------------------------------------------------------------------------
