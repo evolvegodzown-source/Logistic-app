@@ -111,23 +111,23 @@ st.markdown(
 # ----------------------------------------------------------------------------
 # DATA LOADING WITH 5-MINUTE AUTO-REFRESH CACHE (ttl=300)
 # ----------------------------------------------------------------------------
+import io
+import requests
+
 @st.cache_data(ttl=300, show_spinner="Fetching live logistics data from SharePoint...")
 def load_data(path=None, uploaded_file=None):
     if uploaded_file is not None:
         return pd.read_excel(uploaded_file)
-    return pd.read_excel(path)
-
-def find_col(df, candidates):
-    cols_lower = {c.lower().strip(): c for c in df.columns}
-    for cand in candidates:
-        if cand.lower().strip() in cols_lower:
-            return cols_lower[cand.lower().strip()]
-    for cand in candidates:
-        for col in df.columns:
-            if cand.lower().strip() in col.lower().strip():
-                return col
-    return None
-
+    
+    # User-Agent header mimics a real web browser to bypass SharePoint 403 bot block
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+    }
+    
+    response = requests.get(path, headers=headers, timeout=20)
+    response.raise_for_status()  # Check if HTTP request was successful
+    
+    return pd.read_excel(io.BytesIO(response.content))
 # ----------------------------------------------------------------------------
 # SIDEBAR HEADER & LOGO INTEGRATION
 # ----------------------------------------------------------------------------
