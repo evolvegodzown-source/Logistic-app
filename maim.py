@@ -27,7 +27,7 @@ st.set_page_config(
 )
 
 # ----------------------------------------------------------------------------
-# CUSTOM CSS
+# CUSTOM CSS WITH HIGH-VISIBILITY KPI CARDS (DARK MODE COMPATIBLE)
 # ----------------------------------------------------------------------------
 st.markdown(
     """
@@ -57,17 +57,35 @@ st.markdown(
             box-shadow: 0 6px 14px rgba(0, 0, 0, 0.1) !important;
         }
 
-        div[data-testid="stMetricLabel"] > div { 
+        /* Force dark high-contrast text on white metric cards in Dark & Light mode */
+        div[data-testid="stMetric"] * {
+            color: #0F172A !important;
+        }
+
+        div[data-testid="stMetricLabel"],
+        div[data-testid="stMetricLabel"] *,
+        div[data-testid="stMetricLabel"] label,
+        div[data-testid="stMetricLabel"] p,
+        div[data-testid="stMetricLabel"] div { 
             font-weight: 800 !important; 
-            color: #000000 !important; 
-            font-size: 0.9rem !important;
+            color: #1E293B !important; 
+            font-size: 0.85rem !important;
             text-transform: uppercase !important;
             letter-spacing: 0.5px !important;
         }
-        div[data-testid="stMetricValue"] > div { 
-            font-size: 1.7rem !important; 
+
+        div[data-testid="stMetricValue"], 
+        div[data-testid="stMetricValue"] *,
+        div[data-testid="stMetricValue"] div { 
+            font-size: 1.6rem !important; 
             font-weight: 800 !important;
-            color: #0F172A !important; 
+            color: #0B192C !important; 
+        }
+
+        div[data-testid="stMetricDelta"],
+        div[data-testid="stMetricDelta"] * {
+            color: #475569 !important;
+            font-size: 0.8rem !important;
         }
 
         /* Sidebar Dark Theme */
@@ -141,7 +159,6 @@ def find_col(df, candidates):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return None
 
-    # Safely convert all column names to string
     cols_lower = {str(c).lower().strip(): c for c in df.columns}
 
     # 1. Exact match pass
@@ -277,6 +294,21 @@ auto = {
         df_raw,
         ["Shipping Duration", "Delivery Duration", "Duration", "Lead Time"],
     ),
+    "tat": find_col(
+        df_raw,
+        [
+            "Creation-delivery TAT",
+            "Creation-Delivery TAT",
+            "Creation to Delivery TAT",
+            "Creation-delivery TAT (hrs)",
+            "Creation-Delivery TAT (hrs)",
+            "Creation-delivery TAT(hrs)",
+            "Creation-Delivery TAT(hrs)",
+            "Creation-delivery",
+            "Creation-Delivery",
+            "TAT",
+        ],
+    ),
 }
 
 # ----------------------------------------------------------------------------
@@ -309,6 +341,7 @@ with st.sidebar.expander("🛠️ Data Column Mapping", expanded=False):
     col_deliv = picker("Delivery Date", "deliv_date")
     col_delivery_time = picker("Delivery Time", "delivery_time")
     col_duration = picker("Pre-calculated Duration (Optional)", "duration")
+    col_tat = picker("Creation-delivery TAT (hrs)", "tat")
 
 required_missing = [
     n
@@ -345,6 +378,12 @@ df["Week Label"] = (
 
 df[col_value] = pd.to_numeric(df[col_value], errors="coerce").fillna(0)
 df[col_qty] = pd.to_numeric(df[col_qty], errors="coerce").fillna(0)
+
+# Process Creation-delivery TAT column
+if col_tat and col_tat in df.columns:
+    df["Creation_Delivery_TAT"] = pd.to_numeric(df[col_tat], errors="coerce")
+else:
+    df["Creation_Delivery_TAT"] = np.nan
 
 
 def build_timestamp(data_df, date_c, time_c):
@@ -489,6 +528,13 @@ with tab_overview:
     avg_order_value = total_value / total_orders if total_orders else 0
     unique_clients = filtered[col_client].nunique()
 
+    # Calculate Creation-to-Delivery TAT KPI
+    avg_tat_hrs = filtered["Creation_Delivery_TAT"].mean()
+    if pd.notna(avg_tat_hrs):
+        tat_str = f"{avg_tat_hrs:.1f} hrs"
+    else:
+        tat_str = "N/A"
+
     if pd.notna(avg_duration_hrs):
         if avg_duration_hrs < 24:
             duration_str = f"{avg_duration_hrs:.1f} hrs"
@@ -498,6 +544,7 @@ with tab_overview:
     else:
         duration_str = "N/A"
 
+    # Row 1: Primary Order & Delivery KPIs
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Total Dispensed Orders", f"{total_orders:,}")
     c2.metric("Total Order Value", f"₦{total_value:,.0f}")
@@ -506,13 +553,16 @@ with tab_overview:
         f"{delivery_pct:.1f}%",
         f"{int(delivered_count)}/{int(total_orders)} Delivered",
     )
-    c4.metric("Average Delivery Duration", duration_str)
+    c4.metric("Avg Creation-Delivery TAT", tat_str)
 
     st.markdown("<br>", unsafe_allow_html=True)
-    c5, c6, c7 = st.columns(3)
-    c5.metric("Total Volume Shipped", f"{total_qty:,.0f} CTN")
-    c6.metric("Avg Order Value", f"₦{avg_order_value:,.0f}")
-    c7.metric("Active Health Facilities", f"{unique_clients:,}")
+
+    # Row 2: Secondary Performance & Volume Metrics
+    c5, c6, c7, c8 = st.columns(4)
+    c5.metric("Avg Dispatch Duration", duration_str)
+    c6.metric("Total Volume Shipped", f"{total_qty:,.0f} CTN")
+    c7.metric("Avg Order Value", f"₦{avg_order_value:,.0f}")
+    c8.metric("Active Health Facilities", f"{unique_clients:,}")
 
     st.markdown("---")
 
@@ -649,6 +699,7 @@ with tab_captains:
                 Total_Value=(col_value, "sum"),
                 Total_Qty=(col_qty, "sum"),
                 Avg_Duration_Hrs=("Dispatch Duration (hrs)", "mean"),
+                Avg_TAT_Hrs=("Creation_Delivery_TAT", "mean"),
                 Delivered=("Is Delivered", "sum"),
             )
             .reset_index()
@@ -727,7 +778,8 @@ with tab_captains:
                 "Total_Orders": "Total Dispatches",
                 "Total_Value": "Order Value",
                 "Total_Qty": "Volume (CTN)",
-                "Avg_Duration_Hrs": "Avg Delivery Duration (Hrs)",
+                "Avg_Duration_Hrs": "Avg Dispatch Duration (Hrs)",
+                "Avg_TAT_Hrs": "Avg Creation-Delivery TAT (Hrs)",
                 "Delivered": "Completed Deliveries",
             }
         )
@@ -736,7 +788,8 @@ with tab_captains:
                 {
                     "Order Value": "₦{:,.0f}",
                     "Volume (CTN)": "{:,.0f}",
-                    "Avg Delivery Duration (Hrs)": "{:.1f}",
+                    "Avg Dispatch Duration (Hrs)": "{:.1f}",
+                    "Avg Creation-Delivery TAT (Hrs)": "{:.1f}",
                     "Delivery Rate %": "{:.1f}%",
                 }
             ),
