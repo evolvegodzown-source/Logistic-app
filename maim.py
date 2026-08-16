@@ -24,7 +24,7 @@ st.set_page_config(
 # PATH & ASSET CONFIGURATION
 # ----------------------------------------------------------------------------
 DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=MFF4su&download=1"
-COVER_LOGO_URL = r"https://drugstock-my.sharepoint.com/:i:/g/personal/it_drugstoc_com/IQDcNxzsXD2tQIGYpCHGU5-eAc7SFdfERgpDuwYYz1A_9-Q?e=2lHEPN&download=1"
+COVER_LOGO_URL = r"https://drugstock-my.sharepoint.com/:i:/g/personal/it_drugstoc_com/IQCURjcRKFhMQ4HunFjm4IxrAfQqHn3s3TDz3jUrWgzgw5g?e=dNiGIh&download=1"
 
 # ----------------------------------------------------------------------------
 # CUSTOM CSS FOR LIGHT/DARK MODE VISIBILITY & STYLING
@@ -38,7 +38,7 @@ st.markdown(
             --ds-navy: #0B192C;
         }
 
-        /* Modern High-Visibility KPI Cards */
+        /* Modern High-Visibility White KPI Cards */
         div[data-testid="stMetric"] {
             background-color: #FFFFFF !important;
             border: 1px solid #CBD5E1 !important;
@@ -53,34 +53,36 @@ st.markdown(
             box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.12) !important;
         }
 
-        /* HIGH-VISIBILITY KPI DESCRIPTIONS / LABELS (Dark & Light Mode Force) */
+        /* HIGH-VISIBILITY KPI LABEL DESCRIPTIONS (Forces Dark Bold Lettering Under White Card) */
         div[data-testid="stMetricLabel"],
         div[data-testid="stMetricLabel"] *,
         div[data-testid="stMetricLabel"] label,
         div[data-testid="stMetricLabel"] p,
         div[data-testid="stMetricLabel"] span { 
             font-weight: 800 !important; 
-            color: #0F172A !important; 
-            font-size: 0.85rem !important;
+            color: #0F172A !important; /* Charcoal dark font for maximum contrast */
+            font-size: 0.88rem !important;
             text-transform: uppercase !important;
-            letter-spacing: 0.6px !important;
+            letter-spacing: 0.5px !important;
             opacity: 1 !important;
+            -webkit-text-fill-color: #0F172A !important;
         }
 
-        /* KPI Values High Contrast */
+        /* KPI Values Bold High Contrast Styling */
         div[data-testid="stMetricValue"],
         div[data-testid="stMetricValue"] *,
         div[data-testid="stMetricValue"] div { 
-            font-size: 1.75rem !important; 
+            font-size: 1.8rem !important; 
             font-weight: 800 !important;
             color: #0B192C !important; 
+            -webkit-text-fill-color: #0B192C !important;
         }
 
         div[data-testid="stMetricDelta"],
         div[data-testid="stMetricDelta"] * {
-            color: #334155 !important;
-            font-weight: 600 !important;
-            font-size: 0.82rem !important;
+            color: #1E293B !important;
+            font-weight: 700 !important;
+            font-size: 0.85rem !important;
         }
 
         /* Sidebar Styling */
@@ -91,7 +93,7 @@ st.markdown(
             color: #F1F5F9 !important; 
         }
 
-        /* Header Cover Logo Container */
+        /* Header Cover Logo Styling */
         .cover-logo-container {
             width: 100%;
             display: flex;
@@ -102,7 +104,7 @@ st.markdown(
             border-bottom: 2px solid #E2E8F0;
         }
         .cover-logo-container img {
-            max-height: 75px;
+            max-height: 85px;
             object-fit: contain;
         }
 
@@ -308,12 +310,12 @@ if selected_region != "All Regions":
     filtered = filtered[filtered[col_region] == selected_region]
 
 # ----------------------------------------------------------------------------
-# MAIN DASHBOARD WITH COVER LOGO
+# MAIN DASHBOARD WITH NEW COVER LOGO
 # ----------------------------------------------------------------------------
 
-# Display Cover Logo Header Image
+# Render updated Cover Logo Header
 try:
-    st.image(COVER_LOGO_URL, use_container_width=False, width=320)
+    st.image(COVER_LOGO_URL, use_container_width=False, width=340)
 except Exception:
     st.markdown(
         f'<div class="cover-logo-container"><img src="{COVER_LOGO_URL}" alt="DrugStoc Logo"/></div>',
