@@ -439,7 +439,7 @@ def render_kpis(cards):
     # Four cards per row on desktop; the CSS card styling handles the visuals.
     for row_start in range(0, len(cards), 4):
         row = cards[row_start:row_start + 4]
-        cols = st.columns(4, gap="medium")
+        cols = st.columns(4)
 
         for col, card in zip(cols, row):
             label, value, description, icon, accent = card
@@ -456,30 +456,34 @@ def render_kpis(cards):
                 )
 
 def plotly_theme(fig):
+    # Keep Plotly styling centralized so every chart behaves consistently
+    # in both themes and does not depend on Streamlit internals.
     fig.update_layout(
         template="plotly_dark" if DARK else "plotly_white",
         paper_bgcolor=THEME["plot_bg"],
         plot_bgcolor=THEME["plot_bg"],
         font=dict(color=THEME["text"]),
-        margin=dict(l=20, r=20, t=55, b=20),
+        margin=dict(l=24, r=24, t=60, b=28),
         hoverlabel=dict(
             bgcolor=THEME["surface"],
             font_color=THEME["text"],
         ),
+        autosize=True,
     )
     fig.update_xaxes(
         showgrid=False,
         color=THEME["muted"],
-        title_font=dict(color=THEME["muted"]),
         tickfont=dict(color=THEME["muted"]),
     )
     fig.update_yaxes(
         gridcolor=THEME["grid"],
         color=THEME["muted"],
-        title_font=dict(color=THEME["muted"]),
         tickfont=dict(color=THEME["muted"]),
     )
     return fig
+
+def show_empty_chart(message):
+    st.info(message)
 
 def section_header(title, note=""):
     st.markdown(
@@ -574,7 +578,13 @@ try:
         uploaded_file=uploaded,
     )
 except Exception as exc:
-    st.error(f"Unable to read the logistics dataset: {exc}")
+    st.error("Unable to load the logistics workbook.")
+    st.info(
+        "If this is running on Streamlit Cloud, verify that the SharePoint "
+        "download link is still valid and that it returns the Excel file directly."
+    )
+    with st.expander("Technical details"):
+        st.code(str(exc))
     st.stop()
 
 df_raw = df_raw.copy()
@@ -835,44 +845,74 @@ with tab_overview:
 
     with col_a:
         reg_summary = (
-            filtered.groupby(col_region)[col_client]
+            filtered.groupby(col_region, dropna=False)[col_client]
             .count()
             .reset_index(name="Orders")
             .sort_values("Orders", ascending=False)
         )
+        reg_summary[col_region] = reg_summary[col_region].fillna("Unassigned").astype(str)
 
-        fig = px.bar(
-            reg_summary,
-            x=col_region,
-            y="Orders",
-            text="Orders",
-            title="Orders by Region / Hub",
-            color_discrete_sequence=[BRAND["blue"]],
-        )
-        fig.update_traces(textposition="outside", cliponaxis=False)
-        fig.update_layout(showlegend=False, height=380)
-        st.plotly_chart(plotly_theme(fig), use_container_width=True)
+        if reg_summary.empty:
+            show_empty_chart("No regional data is available for the selected filters.")
+        else:
+            fig = px.bar(
+                reg_summary,
+                x="Orders",
+                y=col_region,
+                orientation="h",
+                text="Orders",
+                title="Orders by Region / Hub",
+                color_discrete_sequence=[BRAND["blue"]],
+            )
+            fig.update_traces(textposition="outside", cliponaxis=False)
+            fig.update_layout(
+                showlegend=False,
+                height=max(360, min(650, 80 + len(reg_summary) * 36)),
+                xaxis_title="Orders",
+                yaxis_title=None,
+            )
+            st.plotly_chart(
+                plotly_theme(fig),
+                use_container_width=True,
+                config={"displaylogo": False, "responsive": True},
+            )
 
     with col_b:
-        status_summary = filtered[col_status].value_counts().reset_index()
+        status_summary = filtered[col_status].fillna("Unknown").astype(str).value_counts().reset_index()
         status_summary.columns = ["Status", "Orders"]
 
-        fig = px.pie(
-            status_summary,
-            names="Status",
-            values="Orders",
-            hole=0.56,
-            title="Fulfillment Status Mix",
-            color_discrete_sequence=[
-                BRAND["green"],
-                BRAND["blue"],
-                BRAND["amber"],
-                BRAND["red"],
-                "#8B5CF6",
-            ],
-        )
-        fig.update_layout(height=380, legend_title_text="")
-        st.plotly_chart(plotly_theme(fig), use_container_width=True)
+        if status_summary.empty:
+            show_empty_chart("No fulfillment-status data is available for the selected filters.")
+        else:
+            fig = px.pie(
+                status_summary,
+                names="Status",
+                values="Orders",
+                hole=0.56,
+                title="Fulfillment Status Mix",
+                color_discrete_sequence=[
+                    BRAND["green"],
+                    BRAND["blue"],
+                    BRAND["amber"],
+                    BRAND["red"],
+                    "#8B5CF6",
+                ],
+            )
+            fig.update_layout(
+                height=380,
+                legend_title_text="",
+                margin=dict(l=20, r=20, t=60, b=20),
+            )
+            fig.update_traces(
+                textposition="inside",
+                textinfo="percent+label",
+                hovertemplate="<b>%{label}</b><br>Orders: %{value:,}<br>Share: %{percent}<extra></extra>",
+            )
+            st.plotly_chart(
+                plotly_theme(fig),
+                use_container_width=True,
+                config={"displaylogo": False, "responsive": True},
+            )
 
     section_header(
         "Weekly Order Trend",
@@ -880,22 +920,37 @@ with tab_overview:
     )
 
     trend = (
-        filtered.groupby("Week Label")
+        filtered.groupby(["Year", "Week"], as_index=False)
         .size()
-        .reset_index(name="Orders")
-        .sort_values("Week Label")
+        .rename(columns={"size": "Orders"})
+        .sort_values(["Year", "Week"])
+    )
+    trend["Week Label"] = (
+        "W" + trend["Week"].astype(str).str.zfill(2)
+        + " • " + trend["Year"].astype(str)
     )
 
-    fig = px.line(
-        trend,
-        x="Week Label",
-        y="Orders",
-        markers=True,
-        title="Dispensed Orders Over Time",
-    )
-    fig.update_traces(line_width=3, marker_size=8)
-    fig.update_layout(height=340)
-    st.plotly_chart(plotly_theme(fig), use_container_width=True)
+    if trend.empty:
+        show_empty_chart("No weekly order data is available for the selected filters.")
+    else:
+        fig = px.line(
+            trend,
+            x="Week Label",
+            y="Orders",
+            markers=True,
+            title="Dispensed Orders Over Time",
+        )
+        fig.update_traces(
+            line_width=3,
+            marker_size=8,
+            hovertemplate="Week: %{x}<br>Orders: %{y:,}<extra></extra>",
+        )
+        fig.update_layout(height=340, yaxis_title="Orders", xaxis_title="Week")
+        st.plotly_chart(
+            plotly_theme(fig),
+            use_container_width=True,
+            config={"displaylogo": False, "responsive": True},
+        )
 
 # ============================================================================
 # TAB 2: CAPTAIN PERFORMANCE
@@ -935,37 +990,40 @@ with tab_captains:
                 }
             )
 
-            styled = (
-                display_cap.style
-                .format(
-                    {
-                        "Avg Creation→Delivery TAT (hrs)": "{:.1f}",
-                        "Avg Shipping TAT (hrs)": "{:.1f}",
-                        "Success Rate (%)": "{:.1f}%",
-                    },
-                    na_rep="—",
+            if display_cap.empty:
+                st.info("No captain performance records are available for the selected filters.")
+            else:
+                styled = (
+                    display_cap.style
+                    .format(
+                        {
+                            "Avg Creation→Delivery TAT (hrs)": "{:.1f}",
+                            "Avg Shipping TAT (hrs)": "{:.1f}",
+                            "Success Rate (%)": "{:.1f}%",
+                        },
+                        na_rep="—",
+                    )
+                    .background_gradient(
+                        subset=["Success Rate (%)"],
+                        cmap="Greens",
+                        vmin=0,
+                        vmax=100,
+                    )
+                    .background_gradient(
+                        subset=[
+                            "Avg Creation→Delivery TAT (hrs)",
+                            "Avg Shipping TAT (hrs)",
+                        ],
+                        cmap="YlOrRd",
+                    )
                 )
-                .background_gradient(
-                    subset=["Success Rate (%)"],
-                    cmap="Greens",
-                    vmin=0,
-                    vmax=100,
-                )
-                .background_gradient(
-                    subset=[
-                        "Avg Creation→Delivery TAT (hrs)",
-                        "Avg Shipping TAT (hrs)",
-                    ],
-                    cmap="YlOrRd",
-                )
-            )
 
-            st.dataframe(
-                styled,
-                use_container_width=True,
-                hide_index=True,
-                height=min(650, 110 + len(display_cap) * 38),
-            )
+                st.dataframe(
+                    styled,
+                    use_container_width=True,
+                    hide_index=True,
+                    height=min(650, 110 + len(display_cap) * 38),
+                )
 
             rank_df = display_cap.sort_values(
                 ["Success Rate (%)", "Dispatches"],
