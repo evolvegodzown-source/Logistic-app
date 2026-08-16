@@ -27,7 +27,7 @@ DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com
 COVER_LOGO_URL = r"https://drugstock-my.sharepoint.com/:i:/g/personal/it_drugstoc_com/IQCURjcRKFhMQ4HunFjm4IxrAfQqHn3s3TDz3jUrWgzgw5g?e=dNiGIh&download=1"
 
 # ----------------------------------------------------------------------------
-# CUSTOM CSS FOR LIGHT/DARK MODE VISIBILITY & STYLING
+# CUSTOM CSS FOR DARK/LIGHT MODE VISIBILITY & STYLING
 # ----------------------------------------------------------------------------
 st.markdown(
     """
@@ -38,49 +38,48 @@ st.markdown(
             --ds-navy: #0B192C;
         }
 
-        /* Modern High-Visibility White KPI Cards */
+        /* Adaptive High-Visibility KPI Cards (Dark & Light Mode Friendly) */
         div[data-testid="stMetric"] {
-            background-color: #FFFFFF !important;
-            border: 1px solid #CBD5E1 !important;
+            background-color: var(--secondary-background-color, #FFFFFF) !important;
+            border: 1px solid rgba(128, 128, 128, 0.25) !important;
             border-left: 5px solid var(--ds-blue) !important;
             border-radius: 12px !important;
             padding: 16px 20px !important;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08) !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
             transition: all 0.2s ease-in-out;
         }
         div[data-testid="stMetric"]:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.12) !important;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.15) !important;
         }
 
-        /* HIGH-VISIBILITY KPI LABEL DESCRIPTIONS (Forces Dark Bold Lettering Under White Card) */
+        /* HIGH-VISIBILITY KPI LABEL DESCRIPTIONS (Visible in Dark & Light Modes) */
         div[data-testid="stMetricLabel"],
         div[data-testid="stMetricLabel"] *,
         div[data-testid="stMetricLabel"] label,
         div[data-testid="stMetricLabel"] p,
         div[data-testid="stMetricLabel"] span { 
             font-weight: 800 !important; 
-            color: #0F172A !important; /* Charcoal dark font for maximum contrast */
+            color: var(--text-color, #1E293B) !important; 
+            -webkit-text-fill-color: var(--text-color, #1E293B) !important;
             font-size: 0.88rem !important;
             text-transform: uppercase !important;
             letter-spacing: 0.5px !important;
-            opacity: 1 !important;
-            -webkit-text-fill-color: #0F172A !important;
+            opacity: 0.95 !important;
         }
 
-        /* KPI Values Bold High Contrast Styling */
+        /* KPI Values High Contrast Styling */
         div[data-testid="stMetricValue"],
         div[data-testid="stMetricValue"] *,
         div[data-testid="stMetricValue"] div { 
             font-size: 1.8rem !important; 
             font-weight: 800 !important;
-            color: #0B192C !important; 
-            -webkit-text-fill-color: #0B192C !important;
+            color: var(--ds-blue) !important; 
+            -webkit-text-fill-color: var(--ds-blue) !important;
         }
 
         div[data-testid="stMetricDelta"],
         div[data-testid="stMetricDelta"] * {
-            color: #1E293B !important;
             font-weight: 700 !important;
             font-size: 0.85rem !important;
         }
@@ -93,18 +92,19 @@ st.markdown(
             color: #F1F5F9 !important; 
         }
 
-        /* Header Cover Logo Styling */
-        .cover-logo-container {
+        /* Sidebar Logo Header Container */
+        .sidebar-logo-container {
             width: 100%;
             display: flex;
-            justify-content: flex-start;
+            justify-content: center;
             align-items: center;
-            padding-bottom: 15px;
-            margin-bottom: 10px;
-            border-bottom: 2px solid #E2E8F0;
+            padding: 10px 0 15px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
+            margin-bottom: 15px;
         }
-        .cover-logo-container img {
-            max-height: 85px;
+        .sidebar-logo-container img {
+            max-width: 85%;
+            max-height: 80px;
             object-fit: contain;
         }
 
@@ -122,12 +122,10 @@ st.markdown(
 
         .stTabs [data-baseweb="tab-list"] { gap: 8px; }
         .stTabs [data-baseweb="tab"] {
-            background-color: #FFFFFF; 
             border-radius: 8px 8px 0 0;
             padding: 10px 20px; 
-            border: 1px solid #CBD5E1;
+            border: 1px solid rgba(128, 128, 128, 0.2);
             font-weight: 600;
-            color: #334155;
         }
         .stTabs [aria-selected="true"] {
             background-color: var(--ds-blue) !important;
@@ -176,15 +174,22 @@ def find_col(df, candidates):
 
 
 # ----------------------------------------------------------------------------
-# SIDEBAR HEADER
+# SIDEBAR HEADER & LOGO DISPLAY
 # ----------------------------------------------------------------------------
+
+# Display Logo in Sidebar
+try:
+    st.sidebar.image(COVER_LOGO_URL, use_container_width=True)
+except Exception:
+    st.sidebar.markdown(
+        f'<div class="sidebar-logo-container"><img src="{COVER_LOGO_URL}" alt="DrugStoc Logo"/></div>',
+        unsafe_allow_html=True,
+    )
+
 st.sidebar.markdown(
     """
-    <div style="text-align: center; padding: 10px 0;">
-        <h2 style="color: #2A85C8; margin: 0; font-weight: 800; font-size: 26px;">
-            💊 DrugStoc
-        </h2>
-        <p style="color: #94A3B8; font-size: 12px; margin-top: 2px;">Logistics & Operations Intelligence</p>
+    <div style="text-align: center; padding: 5px 0 15px 0;">
+        <p style="color: #94A3B8; font-size: 12px; margin: 0; font-weight: 600;">Logistics & Operations Intelligence</p>
     </div>
     """,
     unsafe_allow_html=True,
@@ -310,18 +315,8 @@ if selected_region != "All Regions":
     filtered = filtered[filtered[col_region] == selected_region]
 
 # ----------------------------------------------------------------------------
-# MAIN DASHBOARD WITH NEW COVER LOGO
+# MAIN DASHBOARD HEADER
 # ----------------------------------------------------------------------------
-
-# Render updated Cover Logo Header
-try:
-    st.image(COVER_LOGO_URL, use_container_width=False, width=340)
-except Exception:
-    st.markdown(
-        f'<div class="cover-logo-container"><img src="{COVER_LOGO_URL}" alt="DrugStoc Logo"/></div>',
-        unsafe_allow_html=True,
-    )
-
 st.markdown('<div class="pharma-badge">HEALTHCARE SUPPLY CHAIN MONITOR</div>', unsafe_allow_html=True)
 st.title("🚚 DrugStoc Logistics Performance Dashboard")
 st.caption(f"Refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')} | Week: **{selected_week}** | Region: **{selected_region}**")
