@@ -24,12 +24,10 @@ st.set_page_config(
 # PATH & ASSET CONFIGURATION
 # ----------------------------------------------------------------------------
 DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=MFF4su&download=1"
-
-# Inline Base64 DrugStoc Logo fallback to guarantee it always renders anywhere
-DRUGSTOC_LOGO_BASE64 = "https://raw.githubusercontent.com/streamlit/streamlit/main/docs/static/logo.png" # Fallback if local image missing
+COVER_LOGO_URL = r"https://drugstock-my.sharepoint.com/:i:/g/personal/it_drugstoc_com/IQDcNxzsXD2tQIGYpCHGU5-eAc7SFdfERgpDuwYYz1A_9-Q?e=2lHEPN&download=1"
 
 # ----------------------------------------------------------------------------
-# CUSTOM CSS & THEMING
+# CUSTOM CSS FOR LIGHT/DARK MODE VISIBILITY & STYLING
 # ----------------------------------------------------------------------------
 st.markdown(
     """
@@ -37,43 +35,55 @@ st.markdown(
         :root {
             --ds-blue: #2A85C8;
             --ds-green: #00A86B;
-            --ds-dark: #0F172A;
-            --ds-card-bg: #FFFFFF;
-            --ds-bg: #F8FAFC;
+            --ds-navy: #0B192C;
         }
-
-        .main { background-color: var(--ds-bg); }
 
         /* Modern High-Visibility KPI Cards */
         div[data-testid="stMetric"] {
             background-color: #FFFFFF !important;
-            border: 1px solid #E2E8F0 !important;
+            border: 1px solid #CBD5E1 !important;
             border-left: 5px solid var(--ds-blue) !important;
             border-radius: 12px !important;
             padding: 16px 20px !important;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05) !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.08) !important;
             transition: all 0.2s ease-in-out;
         }
         div[data-testid="stMetric"]:hover {
             transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1) !important;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.12) !important;
         }
 
-        div[data-testid="stMetricLabel"] * { 
-            font-weight: 700 !important; 
-            color: #64748B !important; 
-            font-size: 0.80rem !important;
-            text-transform: uppercase !important;
-            letter-spacing: 0.5px !important;
-        }
-
-        div[data-testid="stMetricValue"] * { 
-            font-size: 1.7rem !important; 
-            font-weight: 800 !important;
+        /* HIGH-VISIBILITY KPI DESCRIPTIONS / LABELS (Dark & Light Mode Force) */
+        div[data-testid="stMetricLabel"],
+        div[data-testid="stMetricLabel"] *,
+        div[data-testid="stMetricLabel"] label,
+        div[data-testid="stMetricLabel"] p,
+        div[data-testid="stMetricLabel"] span { 
+            font-weight: 800 !important; 
             color: #0F172A !important; 
+            font-size: 0.85rem !important;
+            text-transform: uppercase !important;
+            letter-spacing: 0.6px !important;
+            opacity: 1 !important;
         }
 
-        /* Sidebar Customization */
+        /* KPI Values High Contrast */
+        div[data-testid="stMetricValue"],
+        div[data-testid="stMetricValue"] *,
+        div[data-testid="stMetricValue"] div { 
+            font-size: 1.75rem !important; 
+            font-weight: 800 !important;
+            color: #0B192C !important; 
+        }
+
+        div[data-testid="stMetricDelta"],
+        div[data-testid="stMetricDelta"] * {
+            color: #334155 !important;
+            font-weight: 600 !important;
+            font-size: 0.82rem !important;
+        }
+
+        /* Sidebar Styling */
         section[data-testid="stSidebar"] { 
             background-color: #0B192C !important; 
         }
@@ -81,16 +91,31 @@ st.markdown(
             color: #F1F5F9 !important; 
         }
 
-        /* Custom Badges & Headers */
+        /* Header Cover Logo Container */
+        .cover-logo-container {
+            width: 100%;
+            display: flex;
+            justify-content: flex-start;
+            align-items: center;
+            padding-bottom: 15px;
+            margin-bottom: 10px;
+            border-bottom: 2px solid #E2E8F0;
+        }
+        .cover-logo-container img {
+            max-height: 75px;
+            object-fit: contain;
+        }
+
+        /* Custom Badges & Tabs */
         .pharma-badge {
             background-color: #E0F2FE;
             color: #0369A1;
-            padding: 4px 12px;
+            padding: 4px 14px;
             border-radius: 16px;
             font-size: 0.8rem;
             font-weight: 700;
             display: inline-block;
-            margin-bottom: 8px;
+            margin-bottom: 10px;
         }
 
         .stTabs [data-baseweb="tab-list"] { gap: 8px; }
@@ -98,7 +123,7 @@ st.markdown(
             background-color: #FFFFFF; 
             border-radius: 8px 8px 0 0;
             padding: 10px 20px; 
-            border: 1px solid #E2E8F0;
+            border: 1px solid #CBD5E1;
             font-weight: 600;
             color: #334155;
         }
@@ -149,13 +174,12 @@ def find_col(df, candidates):
 
 
 # ----------------------------------------------------------------------------
-# SIDEBAR HEADER & LOGO DISPLAY
+# SIDEBAR HEADER
 # ----------------------------------------------------------------------------
-# Display DrugStoc Header Logo
 st.sidebar.markdown(
     """
     <div style="text-align: center; padding: 10px 0;">
-        <h2 style="color: #2A85C8; margin: 0; font-weight: 800; font-size: 28px;">
+        <h2 style="color: #2A85C8; margin: 0; font-weight: 800; font-size: 26px;">
             💊 DrugStoc
         </h2>
         <p style="color: #94A3B8; font-size: 12px; margin-top: 2px;">Logistics & Operations Intelligence</p>
@@ -179,7 +203,7 @@ df_raw = None
 try:
     df_raw = load_data(DATA_PATH if uploaded is None else None, uploaded_file=uploaded)
 except Exception as e:
-    st.error(f"Unable to read dataset: {e}")
+    st.error(f"Unable to read dataset from SharePoint: {e}")
     st.stop()
 
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
@@ -257,7 +281,7 @@ df["Dispatch_DT"] = build_timestamp(df, dispatch_date_col, col_dispatch_time)
 df["Creation_Delivery_TAT"] = (df["Delivery_DT"] - df["Created_DT"]).dt.total_seconds() / 3600.0
 df["Creation_Delivery_TAT"] = df["Creation_Delivery_TAT"].apply(lambda x: x if (pd.notna(x) and x >= 0) else np.nan)
 
-# 2. Shipping / Dispatch TAT (Hours)
+# 2. Shipping TAT (Hours)
 df["Shipping_TAT"] = (df["Delivery_DT"] - df["Dispatch_DT"]).dt.total_seconds() / 3600.0
 df["Shipping_TAT"] = df["Shipping_TAT"].apply(lambda x: x if (pd.notna(x) and x >= 0) else np.nan)
 
@@ -284,16 +308,28 @@ if selected_region != "All Regions":
     filtered = filtered[filtered[col_region] == selected_region]
 
 # ----------------------------------------------------------------------------
-# MAIN DASHBOARD
+# MAIN DASHBOARD WITH COVER LOGO
 # ----------------------------------------------------------------------------
+
+# Display Cover Logo Header Image
+try:
+    st.image(COVER_LOGO_URL, use_container_width=False, width=320)
+except Exception:
+    st.markdown(
+        f'<div class="cover-logo-container"><img src="{COVER_LOGO_URL}" alt="DrugStoc Logo"/></div>',
+        unsafe_allow_html=True,
+    )
+
 st.markdown('<div class="pharma-badge">HEALTHCARE SUPPLY CHAIN MONITOR</div>', unsafe_allow_html=True)
 st.title("🚚 DrugStoc Logistics Performance Dashboard")
 st.caption(f"Refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')} | Week: **{selected_week}** | Region: **{selected_region}**")
 
 tab_overview, tab_captains, tab_data = st.tabs(["📊 Executive Overview", "🧑‍✈️ Captain Efficiency", "🗂️ Audit Data"])
 
+# ============================================================================
+# TAB 1: EXECUTIVE OVERVIEW
+# ============================================================================
 with tab_overview:
-    # Calculations
     total_orders = len(filtered)
     total_value = filtered[col_value].sum()
     delivered_count = filtered["Is Delivered"].sum()
@@ -311,16 +347,16 @@ with tab_overview:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Metric Row 2: Turnaround Time (TAT) Focus
+    # Metric Row 2: Turnaround Time (TAT) Metrics
     c5, c6, c7, c8 = st.columns(4)
     
     # Creation to Delivery TAT KPI
     tat_create_str = f"{avg_creation_to_deliv_tat:.1f} hrs" if pd.notna(avg_creation_to_deliv_tat) else "N/A"
-    c5.metric("TAT: Creation to Delivery", tat_create_str, help="Average time taken from Order Creation to Final Delivery")
+    c5.metric("TAT: Creation to Delivery", tat_create_str, help="Average duration from Order Creation to Delivery")
 
     # Shipping TAT KPI
     tat_ship_str = f"{avg_shipping_tat:.1f} hrs" if pd.notna(avg_shipping_tat) else "N/A"
-    c6.metric("TAT: Shipping Duration", tat_ship_str, help="Average time taken from Dispatch/Pickup to Final Delivery")
+    c6.metric("TAT: Shipping Duration", tat_ship_str, help="Average duration from Dispatch/Shipping to Delivery")
 
     c7.metric("Total Volume Shipped", f"{filtered[col_qty].sum():,.0f} CTN")
     c8.metric("Avg Order Value", f"₦{(total_value/total_orders if total_orders else 0):,.0f}")
@@ -346,6 +382,9 @@ with tab_overview:
         fig.update_layout(height=350)
         st.plotly_chart(fig, use_container_width=True)
 
+# ============================================================================
+# TAB 2: CAPTAIN PERFORMANCE
+# ============================================================================
 with tab_captains:
     if col_captain:
         cap_df = filtered.dropna(subset=[col_captain])
@@ -363,11 +402,11 @@ with tab_captains:
             cap_summary.rename(columns={
                 col_captain: "Captain",
                 "Total_Orders": "Dispatches",
-                "Creation_to_Delivery_TAT": "Avg Order-to-Delivery (hrs)",
+                "Creation_to_Delivery_TAT": "Avg Creation-Delivery TAT (hrs)",
                 "Shipping_TAT": "Avg Shipping TAT (hrs)",
                 "Delivery_Rate": "Success Rate (%)"
             }).style.format({
-                "Avg Order-to-Delivery (hrs)": "{:.1f}",
+                "Avg Creation-Delivery TAT (hrs)": "{:.1f}",
                 "Avg Shipping TAT (hrs)": "{:.1f}",
                 "Success Rate (%)": "{:.1f}%"
             }),
@@ -375,6 +414,9 @@ with tab_captains:
             hide_index=True
         )
 
+# ============================================================================
+# TAB 3: AUDIT DATA
+# ============================================================================
 with tab_data:
     st.subheader("Filtered Audit Logs")
     st.dataframe(filtered, use_container_width=True)
