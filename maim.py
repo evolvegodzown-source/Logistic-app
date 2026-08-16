@@ -246,15 +246,17 @@ st.markdown(
         /* KPI cards */
         .kpi-grid {{
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(4, minmax(220px, 1fr));
             gap: 14px;
-            margin: 10px 0 18px 0;
+            margin: 10px 0 8px 0;
         }}
 
         .kpi-card {{
             position: relative;
             overflow: hidden;
-            min-height: 142px;
+            height: 154px;
+            min-height: 154px;
+            box-sizing: border-box;
             background: var(--ds-surface);
             border: 1px solid var(--ds-border);
             border-radius: 17px;
@@ -305,17 +307,24 @@ st.markdown(
 
         .kpi-value {{
             color: var(--ds-text) !important;
-            font-size: 1.72rem;
+            font-size: clamp(1.35rem, 1.7vw, 1.72rem);
             font-weight: 900;
             line-height: 1.05;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             margin-top: 11px;
         }}
 
         .kpi-description {{
             color: var(--ds-muted) !important;
-            font-size: .76rem;
-            line-height: 1.35;
+            font-size: .75rem;
+            line-height: 1.32;
             margin-top: 7px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
         }}
 
         .section-head {{
@@ -426,10 +435,25 @@ def kpi_card(label, value, description, icon="•", accent=None):
     """
 
 def render_kpis(cards):
-    st.markdown(
-        '<div class="kpi-grid">' + "".join(kpi_card(*card) for card in cards) + "</div>",
-        unsafe_allow_html=True,
-    )
+    # Use native Streamlit columns for predictable KPI alignment.
+    # Four cards per row on desktop; the CSS card styling handles the visuals.
+    for row_start in range(0, len(cards), 4):
+        row = cards[row_start:row_start + 4]
+        cols = st.columns(4, gap="medium")
+
+        for col, card in zip(cols, row):
+            label, value, description, icon, accent = card
+            with col:
+                st.markdown(
+                    kpi_card(
+                        label=label,
+                        value=value,
+                        description=description,
+                        icon=icon,
+                        accent=accent,
+                    ),
+                    unsafe_allow_html=True,
+                )
 
 def plotly_theme(fig):
     fig.update_layout(
