@@ -399,6 +399,13 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+
+# ----------------------------------------------------------------------------
+# DEPENDENCY NOTE
+# ----------------------------------------------------------------------------
+# Captain table uses Streamlit column_config instead of pandas Styler
+# background_gradient(), so Matplotlib is NOT required.
+
 # ----------------------------------------------------------------------------
 # HELPERS
 # ----------------------------------------------------------------------------
@@ -956,19 +963,22 @@ with tab_overview:
 # TAB 2: CAPTAIN PERFORMANCE
 # ============================================================================
 with tab_captains:
-    if col_captain:
-        cap_df = filtered.dropna(subset=[col_captain]).copy()
+    section_header(
+        "Rider & Captain Turnaround Performance",
+        "Native Streamlit formatting — no Matplotlib dependency required.",
+    )
 
-        section_header(
-            "Rider & Captain Turnaround Performance",
-            "Conditional formatting highlights stronger delivery rates and lower turnaround times.",
-        )
+    if not col_captain:
+        st.info("Map the **Captain / Rider** field in the sidebar to activate this view.")
+    else:
+        cap_df = filtered.dropna(subset=[col_captain]).copy()
+        cap_df = cap_df[cap_df[col_captain].astype(str).str.strip() != ""]
 
         if cap_df.empty:
-            st.info("No captain records are available for the current filters.")
+            st.info("No captain performance records are available for the selected filters.")
         else:
             cap_summary = (
-                cap_df.groupby(col_captain)
+                cap_df.groupby(col_captain, dropna=False)
                 .agg(
                     Total_Orders=(col_client, "count"),
                     Creation_to_Delivery_TAT=("Creation_Delivery_TAT", "mean"),
@@ -978,7 +988,9 @@ with tab_captains:
                 .reset_index()
             )
 
-            cap_summary["Delivery_Rate"] = cap_summary["Delivery_Rate"] * 100
+            cap_summary["Delivery_Rate"] = (
+                cap_summary["Delivery_Rate"].fillna(0) * 100
+            )
 
             display_cap = cap_summary.rename(
                 columns={
@@ -990,65 +1002,151 @@ with tab_captains:
                 }
             )
 
-            if display_cap.empty:
-                st.info("No captain performance records are available for the selected filters.")
+            # Clean invalid/infinite values before sending data to Streamlit.
+            numeric_cols = [
+                "Dispatches",
+                "Avg Creation→Delivery TAT (hrs)",
+                "Avg Shipping TAT (hrs)",
+                "Success Rate (%)",
+            ]
+            for numeric_col in numeric_cols:
+                display_cap[numeric_col] = pd.to_numeric(
+                    display_cap[numeric_col], errors="coerce"
+                )
+
+            display_cap["Success Rate (%)"] = (
+                display_cap["Success Rate (%)"].fillna(0).clip(0, 100)
+            )
+
+            # Native Streamlit column configuration.
+            # IMPORTANT: Do not use pandas Styler.background_gradient here;
+            # that requires matplotlib and caused the Streamlit Cloud ImportError.
+            st.dataframe(
+                display_cap.sort_values(
+                    ["Success Rate (%)", "Dispatches"],
+                    ascending=[False, False],
+                ),
+                use_container_width=True,
+                hide_index=True,
+                height=min(650, 120 + len(display_cap) * 38),
+                column_config={
+                    "Captain": st.column_config.TextColumn(
+                        "Captain",
+                        help="Assigned field captain / rider.",
+                    ),
+                    "Dispatches": st.column_config.NumberColumn(
+                        "Dispatches",
+                        help="Number of filtered orders assigned to the captain.",
+                        format="%d",
+                    ),
+                    "Avg Creation→Delivery TAT (hrs)": st.column_config.NumberColumn(
+                        "Avg Creation→Delivery TAT (hrs)",
+                        help="Average elapsed time from order creation to delivery.",
+                        format="%.1f",
+                    ),
+                    "Avg Shipping TAT (hrs)": st.column_config.NumberColumn(
+                        "Avg Shipping TAT (hrs)",
+                        help="Average elapsed time from dispatch to delivery.",
+                        format="%.1f",
+                    ),
+                    "Success Rate (%)": st.column_config.ProgressColumn(
+                        "Success Rate (%)",
+                        help="Percentage of the captain's filtered orders marked as delivered.",
+                        min_value=0,
+                        max_value=100,
+                        format="%.1f%%",
+                    ),
+                },
+            )
+
+            st.markdown("")
+
+            # Captain ranking chart.
+            rank_df = (
+                display_cap.sort_values(
+                    ["Success Rate (%)", "Dispatches"],
+                    ascending=[False, False],
+                )
+                .head(12)
+                .sort_values("Success Rate (%)")
+            )
+
+            if rank_df.empty:
+                st.info("Not enough captain data to draw the performance chart.")
             else:
-                styled = (
-                    display_cap.style
-                    .format(
-                        {
-                            "Avg Creation→Delivery TAT (hrs)": "{:.1f}",
-                            "Avg Shipping TAT (hrs)": "{:.1f}",
-                            "Success Rate (%)": "{:.1f}%",
-                        },
-                        na_rep="—",
-                    )
-                    .background_gradient(
-                        subset=["Success Rate (%)"],
-                        cmap="Greens",
-                        vmin=0,
-                        vmax=100,
-                    )
-                    .background_gradient(
-                        subset=[
-                            "Avg Creation→Delivery TAT (hrs)",
-                            "Avg Shipping TAT (hrs)",
-                        ],
-                        cmap="YlOrRd",
-                    )
+                fig = px.bar(
+                    rank_df,
+                    x="Success Rate (%)",
+                    y="Captain",
+                    orientation="h",
+                    text="Success Rate (%)",
+                    title="Top Captain Delivery Success Rates",
+                    color_discrete_sequence=[BRAND["green"]],
+                )
+                fig.update_traces(
+                    texttemplate="%{text:.1f}%",
+                    textposition="outside",
+                    cliponaxis=False,
+                    hovertemplate=(
+                        "<b>%{y}</b><br>"
+                        "Success Rate: %{x:.1f}%<extra></extra>"
+                    ),
+                )
+                fig.update_xaxes(range=[0, 100], ticksuffix="%")
+                fig.update_layout(
+                    height=max(360, min(650, 100 + len(rank_df) * 38)),
+                    xaxis_title="Successful Deliveries (%)",
+                    yaxis_title=None,
                 )
 
-                st.dataframe(
-                    styled,
+                st.plotly_chart(
+                    plotly_theme(fig),
                     use_container_width=True,
-                    hide_index=True,
-                    height=min(650, 110 + len(display_cap) * 38),
+                    config={"displaylogo": False, "responsive": True},
                 )
 
-            rank_df = display_cap.sort_values(
+            # Operational interpretation cards.
+            best_captain = display_cap.sort_values(
                 ["Success Rate (%)", "Dispatches"],
                 ascending=[False, False],
-            ).head(12)
+            ).iloc[0]
 
-            fig = px.bar(
-                rank_df.sort_values("Success Rate (%)"),
-                x="Success Rate (%)",
-                y="Captain",
-                orientation="h",
-                text="Success Rate (%)",
-                title="Top Captain Delivery Success Rates",
-                color_discrete_sequence=[BRAND["green"]],
-            )
-            fig.update_traces(
-                texttemplate="%{text:.1f}%",
-                textposition="outside",
-                cliponaxis=False,
-            )
-            fig.update_layout(height=max(350, len(rank_df) * 38))
-            st.plotly_chart(plotly_theme(fig), use_container_width=True)
+            valid_tat = display_cap[
+                display_cap["Avg Shipping TAT (hrs)"].notna()
+            ].copy()
 
-    else:
-        st.info("Map the **Captain / Rider** field in the sidebar to activate this view.")
+            if not valid_tat.empty:
+                fastest = valid_tat.sort_values(
+                    "Avg Shipping TAT (hrs)"
+                ).iloc[0]
+                fastest_text = (
+                    f"{fastest['Captain']} • "
+                    f"{fastest['Avg Shipping TAT (hrs)']:.1f} hrs"
+                )
+            else:
+                fastest_text = "N/A"
+
+            st.markdown(
+                f"""
+                <div class="kpi-grid" style="margin-top:10px;">
+                    {kpi_card(
+                        "Top Success Rate",
+                        f"{best_captain['Success Rate (%)']:.1f}%",
+                        f"Highest delivery success rate: {best_captain['Captain']}.",
+                        "🏆",
+                        BRAND["green"],
+                    )}
+                    {kpi_card(
+                        "Fastest Shipping TAT",
+                        fastest_text,
+                        "Lowest average dispatch-to-delivery turnaround among captains with valid TAT.",
+                        "⚡",
+                        BRAND["blue"],
+                    )}
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 # ============================================================================
 # TAB 3: AUDIT DATA
