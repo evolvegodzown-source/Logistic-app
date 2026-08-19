@@ -49,7 +49,7 @@ ui_theme = st.sidebar.selectbox(
 )
 st.session_state.ui_theme = ui_theme
 
-DARK = ui_theme == "Dark"
+DARK = True  # Permanently dark theme
 
 THEME = {
     "page": "#071421" if DARK else "#F4F8FC",
@@ -467,7 +467,7 @@ def plotly_theme(fig):
     # Keep Plotly styling centralized so every chart behaves consistently
     # in both themes and does not depend on Streamlit internals.
     fig.update_layout(
-        template="plotly_dark" if DARK else "plotly_white",
+        template="plotly_dark",
         paper_bgcolor=THEME["plot_bg"],
         plot_bgcolor=THEME["plot_bg"],
         font=dict(color=THEME["text"]),
