@@ -41,12 +41,6 @@ BRAND = {
 if "ui_theme" not in st.session_state:
     st.session_state.ui_theme = "Light"
 
-ui_theme = st.sidebar.selectbox(
-    "🎨 Dashboard Theme",
-    ["Light", "Dark"],
-    index=["Light", "Dark"].index(st.session_state.ui_theme),
-    key="ui_theme_picker",
-)
 st.session_state.ui_theme = ui_theme
 
 DARK = True  # Permanently dark theme
@@ -566,7 +560,6 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 
-st.sidebar.markdown("### 📂 Data Connection")
 uploaded = st.sidebar.file_uploader(
     "Upload Logistics_DB.xlsx",
     type=["xlsx", "xls"],
