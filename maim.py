@@ -572,10 +572,6 @@ uploaded = st.sidebar.file_uploader(
     help="Upload a current logistics workbook to replace the live SharePoint dataset.",
 )
 
-if st.sidebar.button("🔄 Refresh Data Cache", use_container_width=True):
-    st.cache_data.clear()
-    st.rerun()
-
 # ----------------------------------------------------------------------------
 # DATA PROCESSING
 # ----------------------------------------------------------------------------
@@ -667,6 +663,8 @@ df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
 df = df.dropna(subset=[col_date]).copy()
 df["Week"] = df[col_date].dt.isocalendar().week.astype(int)
 df["Year"] = df[col_date].dt.year.astype(int)
+df["Month"] = df[col_date].dt.month.astype(int)
+df["Month Label"] = df[col_date].dt.strftime("%B %Y")
 df["Week Label"] = "W" + df["Week"].astype(str).str.zfill(2) + " - " + df["Year"].astype(str)
 
 df[col_value] = pd.to_numeric(df[col_value], errors="coerce").fillna(0)
@@ -701,6 +699,13 @@ df["Is Delivered"] = df[col_status].isin(DELIVERED_LABELS)
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎛️ Operations Filters")
 
+month_options = ["All Months"] + sorted(
+    df["Month Label"].dropna().unique().tolist(),
+    key=lambda x: pd.to_datetime(x, format="%B %Y"),
+    reverse=True,
+)
+selected_month = st.sidebar.selectbox("Delivery Month", month_options)
+
 week_options = ["All Weeks"] + sorted(df["Week Label"].unique(), reverse=True)
 selected_week = st.sidebar.selectbox("Delivery Week", week_options)
 
@@ -713,6 +718,9 @@ status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().toli
 selected_status = st.sidebar.selectbox("Delivery Status", status_options)
 
 filtered = df.copy()
+
+if selected_month != "All Months":
+    filtered = filtered[filtered["Month Label"] == selected_month]
 
 if selected_week != "All Weeks":
     filtered = filtered[filtered["Week Label"] == selected_week]
@@ -751,7 +759,7 @@ st.markdown(
 
 st.caption(
     f"Last refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')}  •  "
-    f"Week: **{selected_week}**  •  Region: **{selected_region}**  •  "
+    f"Month: **{selected_month}**  •  Week: **{selected_week}**  •  Region: **{selected_region}**  •  "
     f"Status: **{selected_status}**"
 )
 
@@ -1147,7 +1155,6 @@ with tab_captains:
                 """,
                 unsafe_allow_html=True,
             )
-
 # ============================================================================
 # TAB 3: AUDIT DATA
 # ============================================================================
@@ -1156,7 +1163,6 @@ with tab_data:
         "Filtered Audit Logs",
         f"{len(filtered):,} records shown from {len(df):,} total records.",
     )
-
     st.dataframe(
         filtered,
         use_container_width=True,
