@@ -702,15 +702,24 @@ df["Is Delivered"] = df[col_status].isin(DELIVERED_LABELS)
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎛️ Operations Filters")
 
+# Date filters are derived directly from the Date column.
+# Week is shown as ISO week + year; Month is shown as Month + Year.
 month_options = ["All Months"] + sorted(
     df["Month Label"].dropna().unique().tolist(),
     key=lambda x: pd.to_datetime(x, format="%B %Y"),
     reverse=True,
 )
-selected_month = st.sidebar.selectbox("Delivery Month", month_options)
+selected_month = st.sidebar.selectbox("Month", month_options)
 
-week_options = ["All Weeks"] + sorted(df["Week Label"].unique(), reverse=True)
-selected_week = st.sidebar.selectbox("Delivery Week", week_options)
+week_options = ["All Weeks"] + sorted(
+    df["Week Label"].dropna().unique().tolist(),
+    key=lambda x: (
+        int(x.split(" - ")[1]),
+        int(x.split(" - ")[0].replace("W", ""))
+    ),
+    reverse=True,
+)
+selected_week = st.sidebar.selectbox("Week", week_options)
 
 region_options = ["All Regions"] + sorted(
     df[col_region].dropna().astype(str).unique().tolist()
