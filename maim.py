@@ -669,7 +669,7 @@ selected_region = st.sidebar.selectbox("Region / Hub", region_options)
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
 selected_status = st.sidebar.selectbox("Delivery Status", status_options)
 
-# Normalized choices for Order Type (Prevents duplicate entries & missing counts)
+# Normalized choices for Order Type
 order_type_options = ["All Order Types"]
 if col_order_type and col_order_type in df.columns:
     unique_types = (
@@ -700,7 +700,6 @@ if selected_region != "All Regions":
 if selected_status != "All Statuses":
     filtered = filtered[filtered[col_status] == selected_status]
 
-# Case & Space Insensitive Matching for Order Type (e.g. KAMPE)
 if selected_order_type != "All Order Types" and col_order_type:
     target = selected_order_type.strip().upper()
     filtered = filtered[
@@ -750,6 +749,7 @@ tab_overview, tab_captains, tab_data = st.tabs(
 # TAB 1: EXECUTIVE OVERVIEW
 # ============================================================================
 with tab_overview:
+    # Calculated total orders specifically counting non-null entries in col_client
     total_orders = int(filtered[col_client].count()) if col_client else len(filtered)
     total_value = filtered[col_value].sum()
     delivered_count = int(filtered["Is Delivered"].sum())
@@ -770,7 +770,7 @@ with tab_overview:
             (
                 "Total Dispensed Orders",
                 fmt_num(total_orders),
-                "Count of Client Name values in the selected filters.",
+                f"Count of '{col_client}' entries matching current filters.",
                 "📦",
                 BRAND["blue"],
             ),
@@ -854,7 +854,7 @@ with tab_overview:
                 y=col_region,
                 orientation="h",
                 text="Orders",
-                title="Orders by Region / Hub",
+                title=f"Orders by Region / Hub (Count of {col_client})",
                 color_discrete_sequence=[BRAND["blue"]],
             )
             fig.update_traces(textposition="outside", cliponaxis=False)
@@ -913,9 +913,9 @@ with tab_overview:
     )
 
     trend = (
-        filtered.groupby(["Year", "Week"], as_index=False)
-        .size()
-        .rename(columns={"size": "Orders"})
+        filtered.groupby(["Year", "Week"], as_index=False)[col_client]
+        .count()
+        .rename(columns={col_client: "Orders"})
         .sort_values(["Year", "Week"])
     )
     trend["Week Label"] = (
@@ -931,7 +931,7 @@ with tab_overview:
             x="Week Label",
             y="Orders",
             markers=True,
-            title="Dispensed Orders Over Time",
+            title=f"Dispensed Orders Over Time (Count of {col_client})",
         )
         fig.update_traces(
             line_width=3,
@@ -1017,7 +1017,7 @@ with tab_captains:
                     ),
                     "Dispatches": st.column_config.NumberColumn(
                         "Dispatches",
-                        help="Number of filtered orders assigned to the captain.",
+                        help=f"Number of filtered orders assigned to the captain (Count of {col_client}).",
                         format="%d",
                     ),
                     "Avg Creation→Delivery TAT (hrs)": st.column_config.NumberColumn(
