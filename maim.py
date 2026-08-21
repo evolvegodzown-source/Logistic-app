@@ -595,6 +595,7 @@ df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
 auto = {
     "client": find_col(df_raw, ["Client Name", "Client", "Customer Name", "Pharmacy", "Hospital"]),
+    "so_extract": find_col(df_raw, ["SO Extract", "SO_Extract", "SOExtract"]),
     "value": find_col(df_raw, ["Order Value", "Value", "Amount", "Sales Value", "Total Value"]),
     "qty": find_col(df_raw, ["N0 OF CTN'S", "NO OF CTN'S", "Qty CTN", "Quantity", "CTN"]),
     "created_date": find_col(df_raw, ["Created Date", "Creation Date", "Order Date", "Date Created"]),
@@ -619,6 +620,7 @@ with st.sidebar.expander("🛠️ Column Mapping", expanded=False):
         return None if choice == "(none)" else choice
 
     col_client = picker("Client / Facility", "client")
+    col_so_extract = picker("SO Extract", "so_extract")
     col_value = picker("Order Value (₦)", "value")
     col_qty = picker("Quantity (CTN)", "qty")
     col_date = picker("Created Date", "created_date")
@@ -771,7 +773,8 @@ tab_overview, tab_captains, tab_data = st.tabs(
 # TAB 1: EXECUTIVE OVERVIEW
 # ============================================================================
 with tab_overview:
-    total_orders = len(filtered)
+    # Count of SO Extract (COUNT, not DISTINCT COUNT): each non-blank SO Extract row is counted.
+    total_orders = int(filtered[col_so_extract].notna().sum()) if col_so_extract else len(filtered)
     total_value = filtered[col_value].sum()
     delivered_count = int(filtered["Is Delivered"].sum())
     delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
@@ -791,7 +794,7 @@ with tab_overview:
             (
                 "Total Dispensed Orders",
                 fmt_num(total_orders),
-                "All orders in the selected filters.",
+                "Count of SO Extract values in the selected filters.",
                 "📦",
                 BRAND["blue"],
             ),
