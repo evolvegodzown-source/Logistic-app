@@ -1,6 +1,5 @@
 import io
 from datetime import datetime
-
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -49,7 +48,6 @@ ui_theme = st.sidebar.selectbox(
 st.session_state.ui_theme = ui_theme
 
 DARK = True  # Permanently dark theme
-
 THEME = {
     "page": "#071421" if DARK else "#F4F8FC",
     "surface": "#0E2236" if DARK else "#FFFFFF",
@@ -77,7 +75,6 @@ st.markdown(
             --ds-border: {THEME["border"]};
             --ds-accent-soft: {THEME["accent_soft"]};
         }}
-
         .stApp {{
             background:
                 radial-gradient(circle at 10% 0%, rgba(22,134,217,.10), transparent 28%),
@@ -85,17 +82,14 @@ st.markdown(
                 var(--ds-page);
             color: var(--ds-text);
         }}
-
         [data-testid="stHeader"] {{
             background: transparent !important;
         }}
-
         .block-container {{
             padding-top: 1.4rem;
             padding-bottom: 3rem;
             max-width: 1500px;
         }}
-
         /* Global typography / header visibility */
         h1, h2, h3, h4, h5, h6,
         [data-testid="stMarkdownContainer"] p,
@@ -103,37 +97,30 @@ st.markdown(
         label {{
             color: var(--ds-text) !important;
         }}
-
         h1 {{
             font-size: clamp(2rem, 3vw, 3rem) !important;
             letter-spacing: -1.5px !important;
             margin-bottom: .25rem !important;
         }}
-
         h2 {{
             font-size: 1.55rem !important;
             letter-spacing: -.4px !important;
         }}
-
         h3 {{
             font-size: 1.15rem !important;
             letter-spacing: -.2px !important;
         }}
-
         [data-testid="stCaptionContainer"] {{
             color: var(--ds-muted) !important;
         }}
-
         /* Sidebar */
         section[data-testid="stSidebar"] {{
             background: linear-gradient(180deg, #06182A 0%, #0A2339 100%) !important;
             border-right: 1px solid rgba(255,255,255,.08);
         }}
-
         section[data-testid="stSidebar"] * {{
             color: #F1F7FC !important;
         }}
-
         section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
         section[data-testid="stSidebar"] .stFileUploader,
         section[data-testid="stSidebar"] .stButton button {{
@@ -141,26 +128,22 @@ st.markdown(
             border: 1px solid rgba(255,255,255,.14) !important;
             border-radius: 10px !important;
         }}
-
         section[data-testid="stSidebar"] .stButton button:hover {{
             border-color: var(--ds-blue) !important;
             background: rgba(22,134,217,.18) !important;
         }}
-
         .sidebar-brand {{
             padding: 6px 0 18px 0;
             text-align: center;
             border-bottom: 1px solid rgba(255,255,255,.12);
             margin-bottom: 16px;
         }}
-
         .sidebar-brand img {{
             width: 86%;
             max-height: 84px;
             object-fit: contain;
             margin-bottom: 8px;
         }}
-
         .sidebar-brand .brand-title {{
             font-size: .76rem;
             font-weight: 800;
@@ -168,7 +151,6 @@ st.markdown(
             color: #B9D7EE;
             text-transform: uppercase;
         }}
-
         /* Hero */
         .hero {{
             background: linear-gradient(135deg, rgba(22,134,217,.17), rgba(16,185,129,.10));
@@ -178,13 +160,11 @@ st.markdown(
             margin-bottom: 18px;
             box-shadow: 0 12px 35px rgba(7,26,45,.08);
         }}
-
         .hero-top {{
             display: flex;
             align-items: center;
             gap: 18px;
         }}
-
         .hero-logo {{
             width: 76px;
             height: 76px;
@@ -194,7 +174,6 @@ st.markdown(
             padding: 8px;
             box-shadow: 0 8px 20px rgba(7,26,45,.10);
         }}
-
         .eyebrow {{
             display: inline-block;
             padding: 5px 12px;
@@ -207,7 +186,6 @@ st.markdown(
             text-transform: uppercase;
             margin-bottom: 8px;
         }}
-
         .hero-title {{
             color: var(--ds-text) !important;
             font-size: 2rem;
@@ -215,13 +193,11 @@ st.markdown(
             font-weight: 900;
             margin: 0;
         }}
-
         .hero-subtitle {{
             color: var(--ds-muted) !important;
             margin: 6px 0 0 0;
             font-size: .95rem;
         }}
-
         .status-pill {{
             display: inline-flex;
             align-items: center;
@@ -234,7 +210,6 @@ st.markdown(
             font-size: .76rem;
             margin-top: 12px;
         }}
-
         .status-dot {{
             width: 8px;
             height: 8px;
@@ -242,7 +217,6 @@ st.markdown(
             background: #10B981;
             box-shadow: 0 0 0 4px rgba(16,185,129,.12);
         }}
-
         /* KPI cards */
         .kpi-grid {{
             display: grid;
@@ -250,7 +224,6 @@ st.markdown(
             gap: 14px;
             margin: 10px 0 8px 0;
         }}
-
         .kpi-card {{
             position: relative;
             overflow: hidden;
@@ -264,12 +237,10 @@ st.markdown(
             box-shadow: 0 8px 25px rgba(7,26,45,.07);
             transition: transform .18s ease, box-shadow .18s ease;
         }}
-
         .kpi-card:hover {{
             transform: translateY(-3px);
             box-shadow: 0 14px 32px rgba(7,26,45,.12);
         }}
-
         .kpi-card::before {{
             content: "";
             position: absolute;
@@ -279,14 +250,12 @@ st.markdown(
             width: 5px;
             background: var(--kpi-accent);
         }}
-
         .kpi-top {{
             display: flex;
             justify-content: space-between;
             align-items: center;
             gap: 10px;
         }}
-
         .kpi-label {{
             color: var(--ds-muted) !important;
             font-size: .73rem;
@@ -294,7 +263,6 @@ st.markdown(
             letter-spacing: .06em;
             text-transform: uppercase;
         }}
-
         .kpi-icon {{
             width: 34px;
             height: 34px;
@@ -304,7 +272,6 @@ st.markdown(
             background: var(--kpi-soft);
             font-size: 1rem;
         }}
-
         .kpi-value {{
             color: var(--ds-text) !important;
             font-size: clamp(1.35rem, 1.7vw, 1.72rem);
@@ -315,7 +282,6 @@ st.markdown(
             text-overflow: ellipsis;
             margin-top: 11px;
         }}
-
         .kpi-description {{
             color: var(--ds-muted) !important;
             font-size: .75rem;
@@ -326,7 +292,6 @@ st.markdown(
             -webkit-box-orient: vertical;
             overflow: hidden;
         }}
-
         .section-head {{
             display: flex;
             align-items: center;
@@ -334,25 +299,21 @@ st.markdown(
             gap: 12px;
             margin: 20px 0 8px 0;
         }}
-
         .section-title {{
             color: var(--ds-text) !important;
             font-size: 1.05rem;
             font-weight: 900;
             margin: 0;
         }}
-
         .section-note {{
             color: var(--ds-muted) !important;
             font-size: .76rem;
         }}
-
         /* Tabs */
         .stTabs [data-baseweb="tab-list"] {{
             gap: 8px;
             background: transparent;
         }}
-
         .stTabs [data-baseweb="tab"] {{
             color: var(--ds-muted) !important;
             background: var(--ds-surface-2);
@@ -361,34 +322,28 @@ st.markdown(
             padding: 9px 17px;
             font-weight: 800;
         }}
-
         .stTabs [aria-selected="true"] {{
             background: #1686D9 !important;
             color: #FFFFFF !important;
             border-color: #1686D9 !important;
         }}
-
         div[data-testid="stDataFrame"] {{
             border: 1px solid var(--ds-border);
             border-radius: 14px;
             overflow: hidden;
         }}
-
         [data-testid="stExpander"] {{
             background: var(--ds-surface) !important;
             border: 1px solid var(--ds-border) !important;
             border-radius: 14px !important;
         }}
-
         .stButton button {{
             border-radius: 10px !important;
             font-weight: 800 !important;
         }}
-
         @media (max-width: 1100px) {{
             .kpi-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
         }}
-
         @media (max-width: 650px) {{
             .kpi-grid {{ grid-template-columns: 1fr; }}
             .hero-top {{ align-items: flex-start; }}
@@ -398,13 +353,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-
-# ----------------------------------------------------------------------------
-# DEPENDENCY NOTE
-# ----------------------------------------------------------------------------
-# Captain table uses Streamlit column_config instead of pandas Styler
-# background_gradient(), so Matplotlib is NOT required.
 
 # ----------------------------------------------------------------------------
 # HELPERS
@@ -442,12 +390,9 @@ def kpi_card(label, value, description, icon="•", accent=None):
     """
 
 def render_kpis(cards):
-    # Use native Streamlit columns for predictable KPI alignment.
-    # Four cards per row on desktop; the CSS card styling handles the visuals.
     for row_start in range(0, len(cards), 4):
         row = cards[row_start:row_start + 4]
         cols = st.columns(4)
-
         for col, card in zip(cols, row):
             label, value, description, icon, accent = card
             with col:
@@ -463,8 +408,6 @@ def render_kpis(cards):
                 )
 
 def plotly_theme(fig):
-    # Keep Plotly styling centralized so every chart behaves consistently
-    # in both themes and does not depend on Streamlit internals.
     fig.update_layout(
         template="plotly_dark",
         paper_bgcolor=THEME["plot_bg"],
@@ -540,7 +483,6 @@ def build_timestamp(data_df, date_c, time_c):
 def load_data(path=None, uploaded_file=None):
     if uploaded_file is not None:
         return pd.read_excel(uploaded_file)
-
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -612,7 +554,6 @@ auto = {
 
 with st.sidebar.expander("🛠️ Column Mapping", expanded=False):
     all_cols = ["(none)"] + list(df_raw.columns)
-
     def picker(label, key):
         default = auto.get(key)
         idx = all_cols.index(default) if default in all_cols else 0
@@ -639,6 +580,7 @@ required = {
     "Created Date": col_date,
     "Delivery Status": col_status,
 }
+
 missing = [name for name, value in required.items() if not value]
 if missing:
     st.error(
@@ -661,7 +603,7 @@ if not col_region:
 
 df = df_raw.copy()
 
-# Use the Date column as the single source for all date-based filters.
+# Date conversions
 df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
 df = df.dropna(subset=[col_date]).copy()
 df["Week"] = df[col_date].dt.isocalendar().week.astype(int)
@@ -702,8 +644,6 @@ df["Is Delivered"] = df[col_status].isin(DELIVERED_LABELS)
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎛️ Operations Filters")
 
-# Date filters are derived directly from the Date column.
-# Week is shown as ISO week + year; Month is shown as Month + Year.
 month_options = ["All Months"] + sorted(
     df["Month Label"].dropna().unique().tolist(),
     key=lambda x: pd.to_datetime(x, format="%B %Y"),
@@ -729,13 +669,23 @@ selected_region = st.sidebar.selectbox("Region / Hub", region_options)
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
 selected_status = st.sidebar.selectbox("Delivery Status", status_options)
 
+# Normalized choices for Order Type (Prevents duplicate entries & missing counts)
 order_type_options = ["All Order Types"]
 if col_order_type and col_order_type in df.columns:
-    order_type_options += sorted(
-        df[col_order_type].dropna().astype(str).str.strip().unique().tolist()
+    unique_types = (
+        df[col_order_type]
+        .dropna()
+        .astype(str)
+        .str.strip()
+        .str.upper()
+        .unique()
+        .tolist()
     )
+    order_type_options += sorted([t for t in unique_types if t])
+
 selected_order_type = st.sidebar.selectbox("Order Type", order_type_options)
 
+# Applying Filters
 filtered = df.copy()
 
 if selected_month != "All Months":
@@ -750,9 +700,14 @@ if selected_region != "All Regions":
 if selected_status != "All Statuses":
     filtered = filtered[filtered[col_status] == selected_status]
 
+# Case & Space Insensitive Matching for Order Type (e.g. KAMPE)
 if selected_order_type != "All Order Types" and col_order_type:
+    target = selected_order_type.strip().upper()
     filtered = filtered[
-        filtered[col_order_type].astype(str).str.strip() == selected_order_type
+        filtered[col_order_type]
+        .astype(str)
+        .str.strip()
+        .str.upper() == target
     ]
 
 # ----------------------------------------------------------------------------
@@ -795,7 +750,6 @@ tab_overview, tab_captains, tab_data = st.tabs(
 # TAB 1: EXECUTIVE OVERVIEW
 # ============================================================================
 with tab_overview:
-    # SO is an integer column. Count every non-blank SO value (not DISTINCT COUNT).
     total_orders = int(filtered[col_client].count()) if col_client else len(filtered)
     total_value = filtered[col_value].sum()
     delivered_count = int(filtered["Is Delivered"].sum())
@@ -882,7 +836,6 @@ with tab_overview:
     )
 
     col_a, col_b = st.columns(2)
-
     with col_a:
         reg_summary = (
             filtered.groupby(col_region, dropna=False)[col_client]
@@ -1020,7 +973,6 @@ with tab_captains:
                 )
                 .reset_index()
             )
-
             cap_summary["Delivery_Rate"] = (
                 cap_summary["Delivery_Rate"].fillna(0) * 100
             )
@@ -1035,7 +987,6 @@ with tab_captains:
                 }
             )
 
-            # Clean invalid/infinite values before sending data to Streamlit.
             numeric_cols = [
                 "Dispatches",
                 "Avg Creation→Delivery TAT (hrs)",
@@ -1051,9 +1002,6 @@ with tab_captains:
                 display_cap["Success Rate (%)"].fillna(0).clip(0, 100)
             )
 
-            # Native Streamlit column configuration.
-            # IMPORTANT: Do not use pandas Styler.background_gradient here;
-            # that requires matplotlib and caused the Streamlit Cloud ImportError.
             st.dataframe(
                 display_cap.sort_values(
                     ["Success Rate (%)", "Dispatches"],
@@ -1094,7 +1042,6 @@ with tab_captains:
 
             st.markdown("")
 
-            # Captain ranking chart.
             rank_df = (
                 display_cap.sort_values(
                     ["Success Rate (%)", "Dispatches"],
@@ -1131,14 +1078,12 @@ with tab_captains:
                     xaxis_title="Successful Deliveries (%)",
                     yaxis_title=None,
                 )
-
                 st.plotly_chart(
                     plotly_theme(fig),
                     use_container_width=True,
                     config={"displaylogo": False, "responsive": True},
                 )
 
-            # Operational interpretation cards.
             best_captain = display_cap.sort_values(
                 ["Success Rate (%)", "Dispatches"],
                 ascending=[False, False],
@@ -1180,6 +1125,7 @@ with tab_captains:
                 """,
                 unsafe_allow_html=True,
             )
+
 # ============================================================================
 # TAB 3: AUDIT DATA
 # ============================================================================
@@ -1194,9 +1140,7 @@ with tab_data:
         hide_index=True,
         height=600,
     )
-
     csv = filtered.to_csv(index=False).encode("utf-8")
-
     st.download_button(
         "⬇️ Download Filtered Audit CSV",
         data=csv,
