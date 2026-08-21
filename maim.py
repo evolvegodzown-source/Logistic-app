@@ -6,7 +6,6 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
-
 # ----------------------------------------------------------------------------
 # PAGE CONFIG
 # ----------------------------------------------------------------------------
@@ -16,7 +15,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
 # ----------------------------------------------------------------------------
 # ASSET CONFIGURATION
 # ----------------------------------------------------------------------------
