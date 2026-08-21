@@ -719,13 +719,6 @@ selected_region = st.sidebar.selectbox("Region / Hub", region_options)
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
 selected_status = st.sidebar.selectbox("Delivery Status", status_options)
 
-order_type_options = ["All Order Types"]
-if col_order_type and col_order_type in df.columns:
-    order_type_options += sorted(
-        df[col_order_type].dropna().astype(str).str.strip().unique().tolist()
-    )
-selected_order_type = st.sidebar.selectbox("Order Type", order_type_options)
-
 filtered = df.copy()
 
 if selected_month != "All Months":
@@ -739,11 +732,6 @@ if selected_region != "All Regions":
 
 if selected_status != "All Statuses":
     filtered = filtered[filtered[col_status] == selected_status]
-
-if selected_order_type != "All Order Types" and col_order_type:
-    filtered = filtered[
-        filtered[col_order_type].astype(str).str.strip() == selected_order_type
-    ]
 
 # ----------------------------------------------------------------------------
 # HERO HEADER
@@ -774,7 +762,7 @@ st.markdown(
 st.caption(
     f"Last refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')}  •  "
     f"Month: **{selected_month}**  •  Week: **{selected_week}**  •  Region: **{selected_region}**  •  "
-    f"Status: **{selected_status}**  •  Order Type: **{selected_order_type}**"
+    f"Status: **{selected_status}**"
 )
 
 tab_overview, tab_captains, tab_data = st.tabs(
