@@ -661,6 +661,7 @@ if not col_region:
 
 df = df_raw.copy()
 
+# Use the Date column as the single source for all date-based filters.
 df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
 df = df.dropna(subset=[col_date]).copy()
 df["Week"] = df[col_date].dt.isocalendar().week.astype(int)
