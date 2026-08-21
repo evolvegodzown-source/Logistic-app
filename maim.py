@@ -774,7 +774,7 @@ tab_overview, tab_captains, tab_data = st.tabs(
 # ============================================================================
 with tab_overview:
     # SO is an integer column. Count every non-blank SO value (not DISTINCT COUNT).
-    total_orders = int(filtered[col_so].notna().sum()) if col_so else len(filtered)
+    total_orders = int(filtered[col_so].count()) if col_so else len(filtered)
     total_value = filtered[col_value].sum()
     delivered_count = int(filtered["Is Delivered"].sum())
     delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
