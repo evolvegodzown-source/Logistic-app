@@ -1,8 +1,5 @@
 import io
-import os
-import base64
 from datetime import datetime
-
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -21,210 +18,487 @@ st.set_page_config(
 )
 
 # ----------------------------------------------------------------------------
-# PATH & ASSET CONFIGURATION
+# ASSET CONFIGURATION
 # ----------------------------------------------------------------------------
 DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=MFF4su&download=1"
 COVER_LOGO_URL = r"https://drugstock-my.sharepoint.com/:i:/g/personal/it_drugstoc_com/IQCURjcRKFhMQ4HunFjm4IxrAfQqHn3s3TDz3jUrWgzgw5g?e=dNiGIh&download=1"
+BRAND = {
+    "blue": "#1686D9",
+    "blue_dark": "#0B5FA5",
+    "green": "#10B981",
+    "navy": "#071A2D",
+    "teal": "#14B8A6",
+    "amber": "#F59E0B",
+    "red": "#EF4444",
+}
 
 # ----------------------------------------------------------------------------
-# CUSTOM CSS FOR DARK/LIGHT MODE VISIBILITY & STYLING
+# THEME
 # ----------------------------------------------------------------------------
+if "ui_theme" not in st.session_state:
+    st.session_state.ui_theme = "Light"
+ui_theme = st.sidebar.selectbox(
+    "🎨 Dashboard Theme",
+    ["Light", "Dark"],
+    index=["Light", "Dark"].index(st.session_state.ui_theme),
+    key="ui_theme_picker",
+)
+st.session_state.ui_theme = ui_theme
+DARK = True  # Permanently dark theme
+THEME = {
+    "page": "#071421" if DARK else "#F4F8FC",
+    "surface": "#0E2236" if DARK else "#FFFFFF",
+    "surface_2": "#132B42" if DARK else "#F8FBFF",
+    "text": "#F4F8FC" if DARK else "#102337",
+    "muted": "#A9BCD0" if DARK else "#61758A",
+    "border": "rgba(255,255,255,.10)" if DARK else "#DCE6EF",
+    "grid": "rgba(255,255,255,.10)" if DARK else "#E5EDF4",
+    "plot_bg": "#0E2236" if DARK else "#FFFFFF",
+    "accent_soft": "rgba(22,134,217,.18)" if DARK else "#EAF5FF",
+}
+
 st.markdown(
-    """
+    f"""
     <style>
-        :root {
-            --ds-blue: #2A85C8;
-            --ds-green: #00A86B;
-            --ds-navy: #0B192C;
-        }
-
-        /* Adaptive High-Visibility KPI Cards (Dark & Light Mode Friendly) */
-        div[data-testid="stMetric"] {
-            background-color: var(--secondary-background-color, #FFFFFF) !important;
-            border: 1px solid rgba(128, 128, 128, 0.25) !important;
-            border-left: 5px solid var(--ds-blue) !important;
-            border-radius: 12px !important;
-            padding: 16px 20px !important;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1) !important;
-            transition: all 0.2s ease-in-out;
-        }
-        div[data-testid="stMetric"]:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.15) !important;
-        }
-
-        /* HIGH-VISIBILITY KPI LABEL DESCRIPTIONS */
-        div[data-testid="stMetricLabel"],
-        div[data-testid="stMetricLabel"] *,
-        div[data-testid="stMetricLabel"] label,
-        div[data-testid="stMetricLabel"] p,
-        div[data-testid="stMetricLabel"] span { 
-            font-weight: 800 !important; 
-            color: var(--text-color, #1E293B) !important; 
-            -webkit-text-fill-color: var(--text-color, #1E293B) !important;
-            font-size: 0.88rem !important;
-            text-transform: uppercase !important;
-            letter-spacing: 0.5px !important;
-            opacity: 0.95 !important;
-        }
-
-        /* KPI Values High Contrast Styling */
-        div[data-testid="stMetricValue"],
-        div[data-testid="stMetricValue"] *,
-        div[data-testid="stMetricValue"] div { 
-            font-size: 1.8rem !important; 
-            font-weight: 800 !important;
-            color: var(--ds-blue) !important; 
-            -webkit-text-fill-color: var(--ds-blue) !important;
-        }
-
-        div[data-testid="stMetricDelta"],
-        div[data-testid="stMetricDelta"] * {
-            font-weight: 700 !important;
-            font-size: 0.85rem !important;
-        }
-
-        /* Sidebar Styling */
-        section[data-testid="stSidebar"] { 
-            background-color: #0B192C !important; 
-        }
-        section[data-testid="stSidebar"] * { 
-            color: #F1F5F9 !important; 
-        }
-
-        /* Sidebar Logo Header Container */
-        .sidebar-logo-container {
-            width: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            padding: 10px 0 15px 0;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-            margin-bottom: 15px;
-        }
-        .sidebar-logo-container img {
-            max-width: 85%;
-            max-height: 80px;
+        :root {{
+            --ds-blue: {BRAND["blue"]};
+            --ds-green: {BRAND["green"]};
+            --ds-navy: {BRAND["navy"]};
+            --ds-page: {THEME["page"]};
+            --ds-surface: {THEME["surface"]};
+            --ds-surface-2: {THEME["surface_2"]};
+            --ds-text: {THEME["text"]};
+            --ds-muted: {THEME["muted"]};
+            --ds-border: {THEME["border"]};
+            --ds-accent-soft: {THEME["accent_soft"]};
+        }}
+        .stApp {{
+            background:
+                radial-gradient(circle at 10% 0%, rgba(22,134,217,.10), transparent 28%),
+                radial-gradient(circle at 90% 0%, rgba(16,185,129,.08), transparent 25%),
+                var(--ds-page);
+            color: var(--ds-text);
+        }}
+        [data-testid="stHeader"] {{
+            background: transparent !important;
+        }}
+        .block-container {{
+            padding-top: 1.4rem;
+            padding-bottom: 3rem;
+            max-width: 1500px;
+        }}
+        h1, h2, h3, h4, h5, h6,
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        label {{
+            color: var(--ds-text) !important;
+        }}
+        h1 {{
+            font-size: clamp(2rem, 3vw, 3rem) !important;
+            letter-spacing: -1.5px !important;
+            margin-bottom: .25rem !important;
+        }}
+        h2 {{
+            font-size: 1.55rem !important;
+            letter-spacing: -.4px !important;
+        }}
+        h3 {{
+            font-size: 1.15rem !important;
+            letter-spacing: -.2px !important;
+        }}
+        [data-testid="stCaptionContainer"] {{
+            color: var(--ds-muted) !important;
+        }}
+        section[data-testid="stSidebar"] {{
+            background: linear-gradient(180deg, #06182A 0%, #0A2339 100%) !important;
+            border-right: 1px solid rgba(255,255,255,.08);
+        }}
+        section[data-testid="stSidebar"] * {{
+            color: #F1F7FC !important;
+        }}
+        section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
+        section[data-testid="stSidebar"] .stFileUploader,
+        section[data-testid="stSidebar"] .stButton button {{
+            background: rgba(255,255,255,.08) !important;
+            border: 1px solid rgba(255,255,255,.14) !important;
+            border-radius: 10px !important;
+        }}
+        section[data-testid="stSidebar"] .stButton button:hover {{
+            border-color: var(--ds-blue) !important;
+            background: rgba(22,134,217,.18) !important;
+        }}
+        .sidebar-brand {{
+            padding: 6px 0 18px 0;
+            text-align: center;
+            border-bottom: 1px solid rgba(255,255,255,.12);
+            margin-bottom: 16px;
+        }}
+        .sidebar-brand img {{
+            width: 86%;
+            max-height: 84px;
             object-fit: contain;
-        }
-
-        /* Custom Badges & Tabs */
-        .pharma-badge {
-            background-color: #E0F2FE;
-            color: #0369A1;
-            padding: 4px 14px;
-            border-radius: 16px;
-            font-size: 0.8rem;
-            font-weight: 700;
+            margin-bottom: 8px;
+        }}
+        .sidebar-brand .brand-title {{
+            font-size: .76rem;
+            font-weight: 800;
+            letter-spacing: .14em;
+            color: #B9D7EE;
+            text-transform: uppercase;
+        }}
+        .hero {{
+            background: linear-gradient(135deg, rgba(22,134,217,.17), rgba(16,185,129,.10));
+            border: 1px solid var(--ds-border);
+            border-radius: 22px;
+            padding: 24px 28px;
+            margin-bottom: 18px;
+            box-shadow: 0 12px 35px rgba(7,26,45,.08);
+        }}
+        .hero-top {{
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }}
+        .hero-logo {{
+            width: 76px;
+            height: 76px;
+            border-radius: 18px;
+            object-fit: contain;
+            background: rgba(255,255,255,.92);
+            padding: 8px;
+            box-shadow: 0 8px 20px rgba(7,26,45,.10);
+        }}
+        .eyebrow {{
             display: inline-block;
-            margin-bottom: 10px;
-        }
-
-        .stTabs [data-baseweb="tab-list"] { gap: 8px; }
-        .stTabs [data-baseweb="tab"] {
-            border-radius: 8px 8px 0 0;
-            padding: 10px 20px; 
-            border: 1px solid rgba(128, 128, 128, 0.2);
-            font-weight: 600;
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: var(--ds-blue) !important;
+            padding: 5px 12px;
+            border-radius: 999px;
+            background: var(--ds-accent-soft);
+            color: #1686D9 !important;
+            font-size: .72rem;
+            font-weight: 900;
+            letter-spacing: .10em;
+            text-transform: uppercase;
+            margin-bottom: 8px;
+        }}
+        .hero-title {{
+            color: var(--ds-text) !important;
+            font-size: 2rem;
+            line-height: 1.1;
+            font-weight: 900;
+            margin: 0;
+        }}
+        .hero-subtitle {{
+            color: var(--ds-muted) !important;
+            margin: 6px 0 0 0;
+            font-size: .95rem;
+        }}
+        .status-pill {{
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 7px 11px;
+            border-radius: 999px;
+            background: rgba(16,185,129,.12);
+            color: #10B981 !important;
+            font-weight: 800;
+            font-size: .76rem;
+            margin-top: 12px;
+        }}
+        .status-dot {{
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #10B981;
+            box-shadow: 0 0 0 4px rgba(16,185,129,.12);
+        }}
+        .kpi-card {{
+            position: relative;
+            overflow: hidden;
+            height: 154px;
+            min-height: 154px;
+            box-sizing: border-box;
+            background: var(--ds-surface);
+            border: 1px solid var(--ds-border);
+            border-radius: 17px;
+            padding: 17px 18px 15px 18px;
+            box-shadow: 0 8px 25px rgba(7,26,45,.07);
+            transition: transform .18s ease, box-shadow .18s ease;
+        }}
+        .kpi-card:hover {{
+            transform: translateY(-3px);
+            box-shadow: 0 14px 32px rgba(7,26,45,.12);
+        }}
+        .kpi-card::before {{
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 5px;
+            background: var(--kpi-accent);
+        }}
+        .kpi-top {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 10px;
+        }}
+        .kpi-label {{
+            color: var(--ds-muted) !important;
+            font-size: .73rem;
+            font-weight: 900;
+            letter-spacing: .06em;
+            text-transform: uppercase;
+        }}
+        .kpi-icon {{
+            width: 34px;
+            height: 34px;
+            display: grid;
+            place-items: center;
+            border-radius: 10px;
+            background: var(--kpi-soft);
+            font-size: 1rem;
+        }}
+        .kpi-value {{
+            color: var(--ds-text) !important;
+            font-size: clamp(1.35rem, 1.7vw, 1.72rem);
+            font-weight: 900;
+            line-height: 1.05;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 11px;
+        }}
+        .kpi-description {{
+            color: var(--ds-muted) !important;
+            font-size: .75rem;
+            line-height: 1.32;
+            margin-top: 7px;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }}
+        .section-head {{
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin: 20px 0 8px 0;
+        }}
+        .section-title {{
+            color: var(--ds-text) !important;
+            font-size: 1.05rem;
+            font-weight: 900;
+            margin: 0;
+        }}
+        .section-note {{
+            color: var(--ds-muted) !important;
+            font-size: .76rem;
+        }}
+        .stTabs [data-baseweb="tab-list"] {{
+            gap: 8px;
+            background: transparent;
+        }}
+        .stTabs [data-baseweb="tab"] {{
+            color: var(--ds-muted) !important;
+            background: var(--ds-surface-2);
+            border: 1px solid var(--ds-border);
+            border-radius: 11px;
+            padding: 9px 17px;
+            font-weight: 800;
+        }}
+        .stTabs [aria-selected="true"] {{
+            background: #1686D9 !important;
             color: #FFFFFF !important;
-        }
+            border-color: #1686D9 !important;
+        }}
+        div[data-testid="stDataFrame"] {{
+            border: 1px solid var(--ds-border);
+            border-radius: 14px;
+            overflow: hidden;
+        }}
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
 # ----------------------------------------------------------------------------
-# DATA LOADING & CACHING
+# HELPERS
 # ----------------------------------------------------------------------------
-@st.cache_data(ttl=300, show_spinner="Fetching live logistics data...")
-def load_data(path=None, uploaded_file=None):
-    if uploaded_file is not None:
-        return pd.read_excel(uploaded_file)
+def money(value):
+    return f"₦{value:,.0f}"
 
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) "
-            "Chrome/120.0.0.0 Safari/537.36"
-        )
-    }
-    try:
-        response = requests.get(path, headers=headers, timeout=25)
-        response.raise_for_status()
+def fmt_num(value):
+    return f"{value:,.0f}"
 
-        if "text/html" in response.headers.get("Content-Type", ""):
-            st.error("⚠️ SharePoint URL returned an HTML page (login required). Please upload the file directly.")
-            st.stop()
+def kpi_card(label, value, description, icon="•", accent=None):
+    accent = accent or BRAND["blue"]
+    soft = "rgba(22,134,217,.12)" if accent == BRAND["blue"] else ("rgba(16,185,129,.12)" if accent == BRAND["green"] else ("rgba(245,158,11,.13)" if accent == BRAND["amber"] else "rgba(239,68,68,.12)"))
+    return f"""
+        <div class="kpi-card" style="--kpi-accent:{accent};--kpi-soft:{soft};">
+            <div class="kpi-top">
+                <div class="kpi-label">{label}</div>
+                <div class="kpi-icon">{icon}</div>
+            </div>
+            <div class="kpi-value">{value}</div>
+            <div class="kpi-description">{description}</div>
+        </div>
+    """
 
-        return pd.read_excel(io.BytesIO(response.content))
-    except Exception as err:
-        st.error(f"⚠️ Failed to fetch dataset: {err}")
-        st.stop()
+def render_kpis(cards):
+    for row_start in range(0, len(cards), 4):
+        row = cards[row_start:row_start + 4]
+        cols = st.columns(4)
+        for col, card in zip(cols, row):
+            label, value, description, icon, accent = card
+            with col:
+                st.markdown(
+                    kpi_card(
+                        label=label,
+                        value=value,
+                        description=description,
+                        icon=icon,
+                        accent=accent,
+                    ),
+                    unsafe_allow_html=True,
+                )
 
+def plotly_theme(fig):
+    fig.update_layout(
+        template="plotly_dark",
+        paper_bgcolor=THEME["plot_bg"],
+        plot_bgcolor=THEME["plot_bg"],
+        font=dict(color=THEME["text"]),
+        margin=dict(l=24, r=24, t=60, b=28),
+        hoverlabel=dict(
+            bgcolor=THEME["surface"],
+            font_color=THEME["text"],
+        ),
+        autosize=True,
+    )
+    fig.update_xaxes(
+        showgrid=False,
+        color=THEME["muted"],
+        tickfont=dict(color=THEME["muted"]),
+    )
+    fig.update_yaxes(
+        gridcolor=THEME["grid"],
+        color=THEME["muted"],
+        tickfont=dict(color=THEME["muted"]),
+    )
+    return fig
+
+def show_empty_chart(message):
+    st.info(message)
+
+def section_header(title, note=""):
+    st.markdown(
+        f"""
+        <div class="section-head">
+            <div class="section-title">{title}</div>
+            <div class="section-note">{note}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 def find_col(df, candidates):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return None
     cols_lower = {str(c).lower().strip(): c for c in df.columns}
     for cand in candidates:
-        cand_str = str(cand).lower().strip()
-        if cand_str in cols_lower:
-            return cols_lower[cand_str]
+        key = str(cand).lower().strip()
+        if key in cols_lower:
+            return cols_lower[key]
     for cand in candidates:
-        cand_str = str(cand).lower().strip()
+        key = str(cand).lower().strip()
         for col in df.columns:
-            if cand_str in str(col).lower().strip():
+            if key in str(col).lower().strip():
                 return col
     return None
 
+def build_timestamp(data_df, date_c, time_c):
+    if not date_c or date_c not in data_df.columns:
+        return pd.Series(pd.NaT, index=data_df.index)
+    dates = pd.to_datetime(data_df[date_c], errors="coerce")
+    if time_c and time_c in data_df.columns:
+        times = (
+            data_df[time_c]
+            .astype(str)
+            .str.strip()
+            .replace(["nan", "None", "<NaT>", ""], "00:00:00")
+        )
+        combined = dates.dt.strftime("%Y-%m-%d") + " " + times
+        return pd.to_datetime(combined, errors="coerce")
+    return dates
 
 # ----------------------------------------------------------------------------
-# SIDEBAR HEADER & LOGO DISPLAY
+# DATA LOADING - FIXED TO EXTRACT ALL TABLES / SHEETS WITHOUT DROPPING DUPLICATES
 # ----------------------------------------------------------------------------
-try:
-    st.sidebar.image(COVER_LOGO_URL, use_container_width=True)
-except Exception:
-    st.sidebar.markdown(
-        f'<div class="sidebar-logo-container"><img src="{COVER_LOGO_URL}" alt="DrugStoc Logo"/></div>',
-        unsafe_allow_html=True,
-    )
+@st.cache_data(ttl=300, show_spinner="Fetching live logistics data...")
+def load_data(path=None, uploaded_file=None):
+    if uploaded_file is not None:
+        source = uploaded_file
+    else:
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            )
+        }
+        response = requests.get(path, headers=headers, timeout=25)
+        response.raise_for_status()
+        source = io.BytesIO(response.content)
 
+    # sheet_name=None reads ALL sheets from the workbook into a dictionary
+    all_sheets = pd.read_excel(source, sheet_name=None)
+    
+    # Combine every sheet into a single DataFrame preserving ALL duplicate rows
+    combined_df = pd.concat(all_sheets.values(), ignore_index=True)
+    return combined_df
+
+# ----------------------------------------------------------------------------
+# SIDEBAR
+# ----------------------------------------------------------------------------
 st.sidebar.markdown(
-    """
-    <div style="text-align: center; padding: 5px 0 15px 0;">
-        <p style="color: #94A3B8; font-size: 12px; margin: 0; font-weight: 600;">Logistics & Operations Intelligence</p>
+    f"""
+    <div class="sidebar-brand">
+        <img src="{COVER_LOGO_URL}" alt="DrugStoc logo"/>
+        <div class="brand-title">Pharma Logistics Intelligence</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
-
-st.sidebar.markdown("---")
-st.sidebar.subheader("📂 Data Connection")
-uploaded = st.sidebar.file_uploader("Upload Logistics_DB.xlsx", type=["xlsx", "xls"])
-
-if st.sidebar.button("🔄 Refresh Data Cache"):
-    st.cache_data.clear()
-    st.rerun()
+st.sidebar.markdown("### 📂 Data Connection")
+uploaded = st.sidebar.file_uploader(
+    "Upload Logistics_DB.xlsx",
+    type=["xlsx", "xls"],
+    help="Upload a current logistics workbook to replace the live SharePoint dataset.",
+)
 
 # ----------------------------------------------------------------------------
 # DATA PROCESSING
 # ----------------------------------------------------------------------------
-df_raw = None
 try:
-    df_raw = load_data(DATA_PATH if uploaded is None else None, uploaded_file=uploaded)
-except Exception as e:
-    st.error(f"Unable to read dataset: {e}")
+    df_raw = load_data(
+        None if uploaded is not None else DATA_PATH,
+        uploaded_file=uploaded,
+    )
+except Exception as exc:
+    st.error("Unable to load the logistics workbook.")
+    st.info("Verify the link or file uploaded contains valid Excel tables.")
+    with st.expander("Technical details"):
+        st.code(str(exc))
     st.stop()
 
+df_raw = df_raw.copy()
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-# Auto-detect column mappings
 auto = {
     "client": find_col(df_raw, ["Client Name", "Client", "Customer Name", "Pharmacy", "Hospital"]),
+    "so": find_col(df_raw, ["SO", "Sales Order", "SO Number"]),
     "value": find_col(df_raw, ["Order Value", "Value", "Amount", "Sales Value", "Total Value"]),
     "qty": find_col(df_raw, ["N0 OF CTN'S", "NO OF CTN'S", "Qty CTN", "Quantity", "CTN"]),
     "created_date": find_col(df_raw, ["Created Date", "Creation Date", "Order Date", "Date Created"]),
@@ -239,189 +513,337 @@ auto = {
     "delivery_time": find_col(df_raw, ["Delivery Time", "Time Delivered"]),
 }
 
-with st.sidebar.expander("🛠️ Column Mapping Settings", expanded=False):
+with st.sidebar.expander("🛠️ Column Mapping", expanded=False):
     all_cols = ["(none)"] + list(df_raw.columns)
     def picker(label, key):
         default = auto.get(key)
-        idx = all_cols.index(default) if (default and default in all_cols) else 0
+        idx = all_cols.index(default) if default in all_cols else 0
         choice = st.selectbox(label, all_cols, index=idx, key=f"map_{key}")
         return None if choice == "(none)" else choice
 
-    col_client = picker("Client Name", "client")
+    col_client = picker("Client / Facility", "client")
+    col_so = picker("SO", "so")
     col_value = picker("Order Value (₦)", "value")
     col_qty = picker("Quantity (CTN)", "qty")
     col_date = picker("Created Date", "created_date")
     col_create_time = picker("Created Time", "created_time")
-    col_region = picker("Region/Zone", "region")
+    col_region = picker("Region / Hub", "region")
     col_status = picker("Delivery Status", "status")
-    col_captain = picker("Captain/Rider", "captain")
+    col_captain = picker("Captain / Rider", "captain")
     col_order_type = picker("Order Type", "order_type")
     col_ship = picker("Dispatch Date", "ship_date")
     col_dispatch_time = picker("Dispatch Time", "dispatch_time")
     col_deliv = picker("Delivery Date", "deliv_date")
     col_delivery_time = picker("Delivery Time", "delivery_time")
 
+required = {
+    "Client / Facility": col_client,
+}
+missing = [name for name, value in required.items() if not value]
+if missing:
+    st.error("Please map the required field: " + ", ".join(missing))
+    st.stop()
+
+if not col_value:
+    df_raw["__OrderValue"] = 0.0
+    col_value = "__OrderValue"
+if not col_qty:
+    df_raw["__Quantity"] = 0.0
+    col_qty = "__Quantity"
+if not col_region:
+    df_raw["__Region"] = "Unassigned"
+    col_region = "__Region"
+
 df = df_raw.copy()
 
-# Date & Time Parsing
-df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
-df = df.dropna(subset=[col_date])
-df["Week"] = df[col_date].dt.isocalendar().week.astype(int)
-df["Year"] = df[col_date].dt.year.astype(int)
-df["Week Label"] = "W" + df["Week"].astype(str).str.zfill(2) + " - " + df["Year"].astype(str)
+# Preserve every single row regardless of missing dates
+if col_date and col_date in df.columns:
+    df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
+    df["Week"] = df[col_date].dt.isocalendar().week.fillna(0).astype(int)
+    df["Year"] = df[col_date].dt.year.fillna(0).astype(int)
+    df["Month"] = df[col_date].dt.month.fillna(0).astype(int)
+    df["Month Label"] = df[col_date].dt.strftime("%B %Y").fillna("Unassigned Date")
+    df["Week Label"] = "W" + df["Week"].astype(str).str.zfill(2) + " - " + df["Year"].astype(str)
+else:
+    df["Month Label"] = "Unassigned Date"
+    df["Week Label"] = "Unassigned Date"
 
 df[col_value] = pd.to_numeric(df[col_value], errors="coerce").fillna(0)
 df[col_qty] = pd.to_numeric(df[col_qty], errors="coerce").fillna(0)
-
-def build_timestamp(data_df, date_c, time_c):
-    if not date_c or date_c not in data_df.columns:
-        return pd.Series(pd.NaT, index=data_df.index)
-    dates = pd.to_datetime(data_df[date_c], errors="coerce")
-    if time_c and time_c in data_df.columns:
-        times = data_df[time_c].astype(str).str.strip().replace(["nan", "None", "<NaT>", ""], "00:00:00")
-        combined_str = dates.dt.strftime("%Y-%m-%d") + " " + times
-        return pd.to_datetime(combined_str, errors="coerce")
-    return dates
-
 df["Created_DT"] = build_timestamp(df, col_date, col_create_time)
 df["Delivery_DT"] = build_timestamp(df, col_deliv, col_delivery_time)
-dispatch_date_col = col_ship if (col_ship and col_ship in df.columns) else col_date
+dispatch_date_col = col_ship if col_ship and col_ship in df.columns else col_date
 df["Dispatch_DT"] = build_timestamp(df, dispatch_date_col, col_dispatch_time)
 
-# ----------------------------------------------------------------------------
-# TAT CALCULATIONS
-# ----------------------------------------------------------------------------
-df["Creation_Delivery_TAT"] = (df["Delivery_DT"] - df["Created_DT"]).dt.total_seconds() / 3600.0
-df["Creation_Delivery_TAT"] = df["Creation_Delivery_TAT"].apply(lambda x: x if (pd.notna(x) and x >= 0) else np.nan)
+df["Creation_Delivery_TAT"] = (
+    (df["Delivery_DT"] - df["Created_DT"]).dt.total_seconds() / 3600.0
+)
+df["Creation_Delivery_TAT"] = df["Creation_Delivery_TAT"].apply(
+    lambda x: x if pd.notna(x) and x >= 0 else np.nan
+)
+df["Shipping_TAT"] = (
+    (df["Delivery_DT"] - df["Dispatch_DT"]).dt.total_seconds() / 3600.0
+)
+df["Shipping_TAT"] = df["Shipping_TAT"].apply(
+    lambda x: x if pd.notna(x) and x >= 0 else np.nan
+)
 
-df["Shipping_TAT"] = (df["Delivery_DT"] - df["Dispatch_DT"]).dt.total_seconds() / 3600.0
-df["Shipping_TAT"] = df["Shipping_TAT"].apply(lambda x: x if (pd.notna(x) and x >= 0) else np.nan)
-
-df[col_status] = df[col_status].astype(str).str.strip().str.title()
-DELIVERED_LABELS = {"Delivered", "Complete", "Completed", "Successful"}
-df["Is Delivered"] = df[col_status].isin(DELIVERED_LABELS)
+if col_status and col_status in df.columns:
+    df[col_status] = df[col_status].astype(str).str.strip().str.title()
+    DELIVERED_LABELS = {"Delivered", "Complete", "Completed", "Successful"}
+    df["Is Delivered"] = df[col_status].isin(DELIVERED_LABELS)
+else:
+    df[col_status] = "Unassigned"
+    df["Is Delivered"] = False
 
 # ----------------------------------------------------------------------------
 # SIDEBAR FILTERS
 # ----------------------------------------------------------------------------
 st.sidebar.markdown("---")
-st.sidebar.subheader("🎛️ Operations Filters")
+st.sidebar.markdown("### 🎛️ Operations Filters")
 
-week_options = ["All Weeks"] + sorted(df["Week Label"].unique(), reverse=True)
-selected_week = st.sidebar.selectbox("Delivery Week", week_options)
+month_options = ["All Months"] + sorted(df["Month Label"].dropna().unique().tolist())
+selected_month = st.sidebar.selectbox("Month", month_options)
 
-region_options = ["All Regions"] + sorted(df[col_region].dropna().unique().tolist())
+week_options = ["All Weeks"] + sorted(df["Week Label"].dropna().unique().tolist())
+selected_week = st.sidebar.selectbox("Week", week_options)
+
+region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).unique().tolist())
 selected_region = st.sidebar.selectbox("Region / Hub", region_options)
 
+status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
+selected_status = st.sidebar.selectbox("Delivery Status", status_options)
+
+order_type_options = ["All Order Types"]
+if col_order_type and col_order_type in df.columns:
+    order_type_options += sorted(df[col_order_type].dropna().astype(str).str.strip().unique().tolist())
+selected_order_type = st.sidebar.selectbox("Order Type", order_type_options)
+
 filtered = df.copy()
+if selected_month != "All Months":
+    filtered = filtered[filtered["Month Label"] == selected_month]
 if selected_week != "All Weeks":
     filtered = filtered[filtered["Week Label"] == selected_week]
 if selected_region != "All Regions":
-    filtered = filtered[filtered[col_region] == selected_region]
+    filtered = filtered[filtered[col_region].astype(str) == selected_region]
+if selected_status != "All Statuses":
+    filtered = filtered[filtered[col_status] == selected_status]
+if selected_order_type != "All Order Types" and col_order_type:
+    filtered = filtered[filtered[col_order_type].astype(str).str.strip() == selected_order_type]
 
 # ----------------------------------------------------------------------------
-# MAIN DASHBOARD
+# HERO HEADER
 # ----------------------------------------------------------------------------
-st.markdown('<div class="pharma-badge">HEALTHCARE SUPPLY CHAIN MONITOR</div>', unsafe_allow_html=True)
-st.title("🚚 DrugStoc Logistics Performance Dashboard")
-st.caption(f"Refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')} | Week: **{selected_week}** | Region: **{selected_region}**")
+st.markdown(
+    f"""
+    <div class="hero">
+        <div class="hero-top">
+            <img class="hero-logo" src="{COVER_LOGO_URL}" alt="DrugStoc logo"/>
+            <div>
+                <div class="eyebrow">Healthcare Supply Chain Monitor</div>
+                <div class="hero-title">DrugStoc Pharma Logistics Dashboard</div>
+                <div class="hero-subtitle">
+                    Executive visibility across order fulfillment, delivery turnaround,
+                    shipment volume and field-captain performance.
+                </div>
+                <div class="status-pill">
+                    <span class="status-dot"></span>
+                    Live operational view
+                </div>
+            </div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
-tab_overview, tab_captains, tab_data = st.tabs(["📊 Executive Overview", "🧑‍✈️ Captain Efficiency", "🗂️ Audit Data"])
+tab_overview, tab_captains, tab_data = st.tabs(
+    ["📊 Executive Overview", "🧑‍✈️ Captain Efficiency", "🗂️ Audit Data"]
+)
 
 # ============================================================================
 # TAB 1: EXECUTIVE OVERVIEW
 # ============================================================================
 with tab_overview:
-    # REVISED: Count of non-null Client Name column entries
-    if col_client and col_client in filtered.columns:
-        total_orders = int(filtered[col_client].count())
-    else:
-        total_orders = len(filtered)
-
-    total_value = filtered[col_value].sum()
-    delivered_count = filtered["Is Delivered"].sum()
-    delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
+    # COUNT OF COUNT CLIENT NAME (Includes ALL duplicates and rows)
+    total_orders = int(filtered[col_client].count()) if col_client else len(filtered)
     
+    total_value = filtered[col_value].sum()
+    delivered_count = int(filtered["Is Delivered"].sum())
+    delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
     avg_creation_to_deliv_tat = filtered["Creation_Delivery_TAT"].mean()
     avg_shipping_tat = filtered["Shipping_TAT"].mean()
+    total_ctns = filtered[col_qty].sum()
+    avg_order_value = total_value / total_orders if total_orders else 0
+    facilities = filtered[col_client].nunique()
 
-    # Metric Row 1: Fulfillment & Value
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Total Dispensed Orders", f"{total_orders:,}", help="Count of Client Name entries")
-    c2.metric("Total Order Value", f"₦{total_value:,.0f}")
-    c3.metric("Fulfillment Rate", f"{delivery_pct:.1f}%", f"{int(delivered_count)} Delivered")
-    c4.metric("Active Health Facilities", f"{filtered[col_client].nunique():,}")
+    section_header(
+        "Operational KPIs",
+        "Descriptions are intentionally visible so every metric is self-explanatory.",
+    )
+    render_kpis(
+        [
+            (
+                "Total Dispensed Orders",
+                fmt_num(total_orders),
+                "Count of Count Client Name (All records including duplicates).",
+                "📦",
+                BRAND["blue"],
+            ),
+            (
+                "Total Order Value",
+                money(total_value),
+                "Gross order value represented by the filtered records.",
+                "₦",
+                BRAND["green"],
+            ),
+            (
+                "Fulfillment Rate",
+                f"{delivery_pct:.1f}%",
+                f"{delivered_count:,} orders currently marked delivered.",
+                "✓",
+                BRAND["green"],
+            ),
+            (
+                "Active Health Facilities",
+                fmt_num(facilities),
+                "Unique pharmacies, hospitals or facilities served.",
+                "🏥",
+                BRAND["blue"],
+            ),
+            (
+                "Order → Delivery TAT",
+                f"{avg_creation_to_deliv_tat:.1f} hrs" if pd.notna(avg_creation_to_deliv_tat) else "N/A",
+                "Average time from order creation to delivery.",
+                "⏱",
+                BRAND["amber"],
+            ),
+            (
+                "Dispatch → Delivery TAT",
+                f"{avg_shipping_tat:.1f} hrs" if pd.notna(avg_shipping_tat) else "N/A",
+                "Average time from dispatch to successful delivery.",
+                "🚚",
+                BRAND["amber"],
+            ),
+            (
+                "Total Volume Shipped",
+                f"{total_ctns:,.0f} CTN",
+                "Total cartons recorded across filtered orders.",
+                "📦",
+                BRAND["blue"],
+            ),
+            (
+                "Average Order Value",
+                money(avg_order_value),
+                "Average monetary value per order.",
+                "₦",
+                BRAND["green"],
+            ),
+        ]
+    )
 
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Metric Row 2: Turnaround Time (TAT) Metrics
-    c5, c6, c7, c8 = st.columns(4)
-    
-    tat_create_str = f"{avg_creation_to_deliv_tat:.1f} hrs" if pd.notna(avg_creation_to_deliv_tat) else "N/A"
-    c5.metric("TAT: Creation to Delivery", tat_create_str, help="Average duration from Order Creation to Delivery")
-
-    tat_ship_str = f"{avg_shipping_tat:.1f} hrs" if pd.notna(avg_shipping_tat) else "N/A"
-    c6.metric("TAT: Shipping Duration", tat_ship_str, help="Average duration from Dispatch/Shipping to Delivery")
-
-    c7.metric("Total Volume Shipped", f"{filtered[col_qty].sum():,.0f} CTN")
-    c8.metric("Avg Order Value", f"₦{(total_value/total_orders if total_orders else 0):,.0f}")
-
-    st.markdown("---")
-
-    # Visualizations
+    section_header("Network Performance", "Use visuals to spot distribution.")
     col_a, col_b = st.columns(2)
     with col_a:
-        st.subheader("Distribution Volume by Region")
-        reg_summary = filtered.groupby(col_region)[col_client].count().reset_index()
-        fig = px.bar(reg_summary, x=col_region, y=col_client, text=col_client, template="plotly_white",
-                     color_discrete_sequence=["#2A85C8"])
-        fig.update_layout(height=350, showlegend=False, xaxis_title=None, yaxis_title="Orders")
-        st.plotly_chart(fig, use_container_width=True)
+        reg_summary = (
+            filtered.groupby(col_region, dropna=False)[col_client]
+            .count()
+            .reset_index(name="Orders")
+            .sort_values("Orders", ascending=False)
+        )
+        reg_summary[col_region] = reg_summary[col_region].fillna("Unassigned").astype(str)
+        if reg_summary.empty:
+            show_empty_chart("No regional data is available.")
+        else:
+            fig = px.bar(
+                reg_summary,
+                x="Orders",
+                y=col_region,
+                orientation="h",
+                text="Orders",
+                title="Orders by Region / Hub",
+                color_discrete_sequence=[BRAND["blue"]],
+            )
+            fig.update_traces(textposition="outside", cliponaxis=False)
+            fig.update_layout(
+                showlegend=False,
+                height=max(360, min(650, 80 + len(reg_summary) * 36)),
+                xaxis_title="Orders",
+                yaxis_title=None,
+            )
+            st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
     with col_b:
-        st.subheader("Fulfillment Status Breakdown")
-        status_summary = filtered[col_status].value_counts().reset_index()
-        fig = px.pie(status_summary, names=status_summary.columns[0], values=status_summary.columns[1],
-                     hole=0.5, template="plotly_white",
-                     color_discrete_sequence=["#00A86B", "#2A85C8", "#E63946", "#FFB703"])
-        fig.update_layout(height=350)
-        st.plotly_chart(fig, use_container_width=True)
+        status_summary = filtered[col_status].fillna("Unknown").astype(str).value_counts().reset_index()
+        status_summary.columns = ["Status", "Orders"]
+        if status_summary.empty:
+            show_empty_chart("No status data available.")
+        else:
+            fig = px.pie(
+                status_summary,
+                names="Status",
+                values="Orders",
+                hole=0.56,
+                title="Fulfillment Status Mix",
+                color_discrete_sequence=[
+                    BRAND["green"],
+                    BRAND["blue"],
+                    BRAND["amber"],
+                    BRAND["red"],
+                    "#8B5CF6",
+                ],
+            )
+            st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
 # ============================================================================
 # TAB 2: CAPTAIN PERFORMANCE
 # ============================================================================
 with tab_captains:
-    if col_captain:
-        cap_df = filtered.dropna(subset=[col_captain])
-        st.subheader("Rider & Captain Turnaround Performance")
-
-        cap_summary = cap_df.groupby(col_captain).agg(
-            Total_Orders=(col_client, "count"),
-            Creation_to_Delivery_TAT=("Creation_Delivery_TAT", "mean"),
-            Shipping_TAT=("Shipping_TAT", "mean"),
-            Delivery_Rate=("Is Delivered", "mean")
-        ).reset_index()
-        cap_summary["Delivery_Rate"] = (cap_summary["Delivery_Rate"] * 100).round(1)
-
-        st.dataframe(
-            cap_summary.rename(columns={
-                col_captain: "Captain",
-                "Total_Orders": "Dispatches",
-                "Creation_to_Delivery_TAT": "Avg Creation-Delivery TAT (hrs)",
-                "Shipping_TAT": "Avg Shipping TAT (hrs)",
-                "Delivery_Rate": "Success Rate (%)"
-            }).style.format({
-                "Avg Creation-Delivery TAT (hrs)": "{:.1f}",
-                "Avg Shipping TAT (hrs)": "{:.1f}",
-                "Success Rate (%)": "{:.1f}%"
-            }),
-            use_container_width=True,
-            hide_index=True
-        )
+    section_header("Rider & Captain Turnaround Performance")
+    if not col_captain:
+        st.info("Map the Captain field to activate this view.")
+    else:
+        cap_df = filtered.dropna(subset=[col_captain]).copy()
+        cap_df = cap_df[cap_df[col_captain].astype(str).str.strip() != ""]
+        if cap_df.empty:
+            st.info("No captain performance records available.")
+        else:
+            cap_summary = (
+                cap_df.groupby(col_captain, dropna=False)
+                .agg(
+                    Total_Orders=(col_client, "count"),
+                    Creation_to_Delivery_TAT=("Creation_Delivery_TAT", "mean"),
+                    Shipping_TAT=("Shipping_TAT", "mean"),
+                    Delivery_Rate=("Is Delivered", "mean"),
+                )
+                .reset_index()
+            )
+            cap_summary["Delivery_Rate"] = cap_summary["Delivery_Rate"].fillna(0) * 100
+            display_cap = cap_summary.rename(
+                columns={
+                    col_captain: "Captain",
+                    "Total_Orders": "Dispatches",
+                    "Creation_to_Delivery_TAT": "Avg Creation→Delivery TAT (hrs)",
+                    "Shipping_TAT": "Avg Shipping TAT (hrs)",
+                    "Delivery_Rate": "Success Rate (%)",
+                }
+            )
+            st.dataframe(
+                display_cap.sort_values(["Success Rate (%)", "Dispatches"], ascending=[False, False]),
+                use_container_width=True,
+                hide_index=True,
+            )
 
 # ============================================================================
 # TAB 3: AUDIT DATA
 # ============================================================================
 with tab_data:
-    st.subheader("Filtered Audit Logs")
-    st.dataframe(filtered, use_container_width=True)
+    section_header("Filtered Audit Logs", f"{len(filtered):,} records shown from {len(df):,} total records.")
+    st.dataframe(filtered, use_container_width=True, hide_index=True, height=600)
+    csv = filtered.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download Filtered Audit CSV",
+        data=csv,
+        file_name="drugstoc_filtered_logistics_audit.csv",
+        mime="text/csv",
+    )
