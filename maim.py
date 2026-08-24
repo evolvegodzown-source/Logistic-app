@@ -403,9 +403,16 @@ def section_header(title, note=""):
         unsafe_allow_html=True,
     )
 
-def find_col(df, candidates):
+def find_col(df, candidates, exact_caps_only=False):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return None
+    
+    # Strict matching mode for exact case uppercase requirement
+    if exact_caps_only:
+        for cand in candidates:
+            if cand in df.columns:
+                return cand
+            
     cols_lower = {str(c).lower().strip(): c for c in df.columns}
     for cand in candidates:
         key = str(cand).lower().strip()
@@ -493,7 +500,7 @@ except Exception as exc:
 df_raw = df_raw.copy()
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-# HARDCODED / PERMANENT COLUMN TARGETS
+# STRICT PERMANENT COLUMN MAPPING FOR "STATUS" IN ALL CAPS
 auto = {
     "client": find_col(df_raw, ["Client Name", "Client", "Customer Name", "Pharmacy", "Hospital"]),
     "so": find_col(df_raw, ["SO", "Sales Order", "SO Number"]),
@@ -502,7 +509,7 @@ auto = {
     "created_date": find_col(df_raw, ["Date Column", "Date", "Created Date", "Creation Date", "Order Date"]),
     "created_time": find_col(df_raw, ["Created Time", "Creation Time", "Order Time"]),
     "region": find_col(df_raw, ["Region", "Zone", "State", "Territory"]),
-    "status": find_col(df_raw, ["STATUS", "Status", "Delivery Status", "STATUS COLUMN"]),
+    "status": find_col(df_raw, ["STATUS"], exact_caps_only=True) or find_col(df_raw, ["STATUS"]),
     "captain": find_col(df_raw, ["Captain", "Rider", "Driver", "Captain Name"]),
     "order_type": find_col(df_raw, ["Order Type", "Type", "Category"]),
     "ship_date": find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"]),
@@ -526,7 +533,7 @@ with st.sidebar.expander("🛠️ Column Mapping", expanded=False):
     col_date = picker("Filter / Order Date Column", "created_date")
     col_create_time = picker("Created Time", "created_time")
     col_region = picker("Region / Hub", "region")
-    col_status = picker("Delivery Status Column", "status")
+    col_status = picker("Delivery Status Column (STATUS)", "status")
     col_captain = picker("Captain / Rider", "captain")
     col_order_type = picker("Order Type", "order_type")
     col_ship = picker("Dispatch Date", "ship_date")
@@ -586,7 +593,7 @@ df["Shipping_TAT"] = df["Shipping_TAT"].apply(
     lambda x: x if pd.notna(x) and x >= 0 else np.nan
 )
 
-# Status mapping permanently derived from STATUS column
+# Status mapping strictly tied to the STATUS column
 if col_status and col_status in df.columns:
     df[col_status] = df[col_status].astype(str).str.strip().str.title()
     DELIVERED_LABELS = {"Delivered", "Complete", "Completed", "Successful"}
