@@ -434,7 +434,7 @@ def build_timestamp(data_df, date_c, time_c):
     return dates
 
 # ----------------------------------------------------------------------------
-# DATA LOADING - FIXED TO EXTRACT ALL TABLES / SHEETS WITHOUT DROPPING DUPLICATES
+# DATA LOADING
 # ----------------------------------------------------------------------------
 @st.cache_data(ttl=300, show_spinner="Fetching live logistics data...")
 def load_data(path=None, uploaded_file=None):
@@ -452,10 +452,7 @@ def load_data(path=None, uploaded_file=None):
         response.raise_for_status()
         source = io.BytesIO(response.content)
 
-    # sheet_name=None reads ALL sheets from the workbook into a dictionary
     all_sheets = pd.read_excel(source, sheet_name=None)
-    
-    # Combine every sheet into a single DataFrame preserving ALL duplicate rows
     combined_df = pd.concat(all_sheets.values(), ignore_index=True)
     return combined_df
 
@@ -496,15 +493,16 @@ except Exception as exc:
 df_raw = df_raw.copy()
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
+# HARDCODED / PERMANENT COLUMN TARGETS
 auto = {
     "client": find_col(df_raw, ["Client Name", "Client", "Customer Name", "Pharmacy", "Hospital"]),
     "so": find_col(df_raw, ["SO", "Sales Order", "SO Number"]),
     "value": find_col(df_raw, ["Order Value", "Value", "Amount", "Sales Value", "Total Value"]),
     "qty": find_col(df_raw, ["N0 OF CTN'S", "NO OF CTN'S", "Qty CTN", "Quantity", "CTN"]),
-    "created_date": find_col(df_raw, ["Created Date", "Creation Date", "Order Date", "Date Created"]),
+    "created_date": find_col(df_raw, ["Date Column", "Date", "Created Date", "Creation Date", "Order Date"]),
     "created_time": find_col(df_raw, ["Created Time", "Creation Time", "Order Time"]),
     "region": find_col(df_raw, ["Region", "Zone", "State", "Territory"]),
-    "status": find_col(df_raw, ["Delivery Status", "Status"]),
+    "status": find_col(df_raw, ["STATUS COLUMN", "Delivery Status", "Status"]),
     "captain": find_col(df_raw, ["Captain", "Rider", "Driver", "Captain Name"]),
     "order_type": find_col(df_raw, ["Order Type", "Type", "Category"]),
     "ship_date": find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"]),
@@ -525,10 +523,10 @@ with st.sidebar.expander("🛠️ Column Mapping", expanded=False):
     col_so = picker("SO", "so")
     col_value = picker("Order Value (₦)", "value")
     col_qty = picker("Quantity (CTN)", "qty")
-    col_date = picker("Created Date", "created_date")
+    col_date = picker("Filter / Order Date Column", "created_date")
     col_create_time = picker("Created Time", "created_time")
     col_region = picker("Region / Hub", "region")
-    col_status = picker("Delivery Status", "status")
+    col_status = picker("Delivery Status Column", "status")
     col_captain = picker("Captain / Rider", "captain")
     col_order_type = picker("Order Type", "order_type")
     col_ship = picker("Dispatch Date", "ship_date")
@@ -556,7 +554,7 @@ if not col_region:
 
 df = df_raw.copy()
 
-# Preserve every single row regardless of missing dates
+# Filter date logic permanently derived from Date Column
 if col_date and col_date in df.columns:
     df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
     df["Week"] = df[col_date].dt.isocalendar().week.fillna(0).astype(int)
@@ -588,6 +586,7 @@ df["Shipping_TAT"] = df["Shipping_TAT"].apply(
     lambda x: x if pd.notna(x) and x >= 0 else np.nan
 )
 
+# Status mapping permanently derived from STATUS COLUMN
 if col_status and col_status in df.columns:
     df[col_status] = df[col_status].astype(str).str.strip().str.title()
     DELIVERED_LABELS = {"Delivered", "Complete", "Completed", "Successful"}
@@ -612,7 +611,7 @@ region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).un
 selected_region = st.sidebar.selectbox("Region / Hub", region_options)
 
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
-selected_status = st.sidebar.selectbox("Delivery Status", status_options)
+selected_status = st.sidebar.selectbox("Delivery Status (STATUS COLUMN)", status_options)
 
 order_type_options = ["All Order Types"]
 if col_order_type and col_order_type in df.columns:
@@ -665,9 +664,7 @@ tab_overview, tab_captains, tab_data = st.tabs(
 # TAB 1: EXECUTIVE OVERVIEW
 # ============================================================================
 with tab_overview:
-    # COUNT OF COUNT CLIENT NAME (Includes ALL duplicates and rows)
     total_orders = int(filtered[col_client].count()) if col_client else len(filtered)
-    
     total_value = filtered[col_value].sum()
     delivered_count = int(filtered["Is Delivered"].sum())
     delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
@@ -677,10 +674,7 @@ with tab_overview:
     avg_order_value = total_value / total_orders if total_orders else 0
     facilities = filtered[col_client].nunique()
 
-    section_header(
-        "Operational KPIs",
-        "Descriptions are intentionally visible so every metric is self-explanatory.",
-    )
+    section_header("Operational KPIs")
     render_kpis(
         [
             (
@@ -742,7 +736,7 @@ with tab_overview:
         ]
     )
 
-    section_header("Network Performance", "Use visuals to spot distribution.")
+    section_header("Network Performance")
     col_a, col_b = st.columns(2)
     with col_a:
         reg_summary = (
@@ -784,7 +778,7 @@ with tab_overview:
                 names="Status",
                 values="Orders",
                 hole=0.56,
-                title="Fulfillment Status Mix",
+                title="Fulfillment Status Mix (STATUS COLUMN)",
                 color_discrete_sequence=[
                     BRAND["green"],
                     BRAND["blue"],
