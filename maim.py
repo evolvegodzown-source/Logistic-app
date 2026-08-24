@@ -502,7 +502,7 @@ auto = {
     "created_date": find_col(df_raw, ["Date Column", "Date", "Created Date", "Creation Date", "Order Date"]),
     "created_time": find_col(df_raw, ["Created Time", "Creation Time", "Order Time"]),
     "region": find_col(df_raw, ["Region", "Zone", "State", "Territory"]),
-    "status": find_col(df_raw, ["STATUS COLUMN", "Delivery Status", "Status"]),
+    "status": find_col(df_raw, ["STATUS", "Status", "Delivery Status", "STATUS COLUMN"]),
     "captain": find_col(df_raw, ["Captain", "Rider", "Driver", "Captain Name"]),
     "order_type": find_col(df_raw, ["Order Type", "Type", "Category"]),
     "ship_date": find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"]),
@@ -586,7 +586,7 @@ df["Shipping_TAT"] = df["Shipping_TAT"].apply(
     lambda x: x if pd.notna(x) and x >= 0 else np.nan
 )
 
-# Status mapping permanently derived from STATUS COLUMN
+# Status mapping permanently derived from STATUS column
 if col_status and col_status in df.columns:
     df[col_status] = df[col_status].astype(str).str.strip().str.title()
     DELIVERED_LABELS = {"Delivered", "Complete", "Completed", "Successful"}
@@ -611,7 +611,7 @@ region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).un
 selected_region = st.sidebar.selectbox("Region / Hub", region_options)
 
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
-selected_status = st.sidebar.selectbox("Delivery Status (STATUS COLUMN)", status_options)
+selected_status = st.sidebar.selectbox("Delivery Status (STATUS)", status_options)
 
 order_type_options = ["All Order Types"]
 if col_order_type and col_order_type in df.columns:
@@ -778,7 +778,7 @@ with tab_overview:
                 names="Status",
                 values="Orders",
                 hole=0.56,
-                title="Fulfillment Status Mix (STATUS COLUMN)",
+                title="Fulfillment Status Mix (STATUS)",
                 color_discrete_sequence=[
                     BRAND["green"],
                     BRAND["blue"],
