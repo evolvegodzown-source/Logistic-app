@@ -33,28 +33,19 @@ BRAND = {
 }
 
 # ----------------------------------------------------------------------------
-# THEME
+# THEME (PERMANENT DARK MODE)
 # ----------------------------------------------------------------------------
-if "ui_theme" not in st.session_state:
-    st.session_state.ui_theme = "Light"
-ui_theme = st.sidebar.selectbox(
-    "🎨 Dashboard Theme",
-    ["Light", "Dark"],
-    index=["Light", "Dark"].index(st.session_state.ui_theme),
-    key="ui_theme_picker",
-)
-st.session_state.ui_theme = ui_theme
-DARK = True  # Permanently dark theme
+DARK = True
 THEME = {
-    "page": "#071421" if DARK else "#F4F8FC",
-    "surface": "#0E2236" if DARK else "#FFFFFF",
-    "surface_2": "#132B42" if DARK else "#F8FBFF",
-    "text": "#F4F8FC" if DARK else "#102337",
-    "muted": "#A9BCD0" if DARK else "#61758A",
-    "border": "rgba(255,255,255,.10)" if DARK else "#DCE6EF",
-    "grid": "rgba(255,255,255,.10)" if DARK else "#E5EDF4",
-    "plot_bg": "#0E2236" if DARK else "#FFFFFF",
-    "accent_soft": "rgba(22,134,217,.18)" if DARK else "#EAF5FF",
+    "page": "#071421",
+    "surface": "#0E2236",
+    "surface_2": "#132B42",
+    "text": "#F4F8FC",
+    "muted": "#A9BCD0",
+    "border": "rgba(255,255,255,.10)",
+    "grid": "rgba(255,255,255,.10)",
+    "plot_bg": "#0E2236",
+    "accent_soft": "rgba(22,134,217,.18)",
 }
 
 st.markdown(
@@ -117,11 +108,14 @@ st.markdown(
             color: #F1F7FC !important;
         }}
         section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
-        section[data-testid="stSidebar"] .stFileUploader,
         section[data-testid="stSidebar"] .stButton button {{
             background: rgba(255,255,255,.08) !important;
             border: 1px solid rgba(255,255,255,.14) !important;
             border-radius: 10px !important;
+        }}
+        section[data-testid="stSidebar"] .stButton button {{
+            width: 100%;
+            font-weight: 700;
         }}
         section[data-testid="stSidebar"] .stButton button:hover {{
             border-color: var(--ds-blue) !important;
@@ -407,7 +401,6 @@ def find_col(df, candidates, exact_caps_only=False):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return None
     
-    # Strict matching mode for exact case uppercase requirement
     if exact_caps_only:
         for cand in candidates:
             if cand in df.columns:
@@ -444,27 +437,24 @@ def build_timestamp(data_df, date_c, time_c):
 # DATA LOADING
 # ----------------------------------------------------------------------------
 @st.cache_data(ttl=300, show_spinner="Fetching live logistics data...")
-def load_data(path=None, uploaded_file=None):
-    if uploaded_file is not None:
-        source = uploaded_file
-    else:
-        headers = {
-            "User-Agent": (
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
-            )
-        }
-        response = requests.get(path, headers=headers, timeout=25)
-        response.raise_for_status()
-        source = io.BytesIO(response.content)
+def load_data(path=DATA_PATH):
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        )
+    }
+    response = requests.get(path, headers=headers, timeout=25)
+    response.raise_for_status()
+    source = io.BytesIO(response.content)
 
     all_sheets = pd.read_excel(source, sheet_name=None)
     combined_df = pd.concat(all_sheets.values(), ignore_index=True)
     return combined_df
 
 # ----------------------------------------------------------------------------
-# SIDEBAR
+# SIDEBAR HEADER & REFRESH BUTTON
 # ----------------------------------------------------------------------------
 st.sidebar.markdown(
     f"""
@@ -475,24 +465,19 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.sidebar.markdown("### 📂 Data Connection")
-uploaded = st.sidebar.file_uploader(
-    "Upload Logistics_DB.xlsx",
-    type=["xlsx", "xls"],
-    help="Upload a current logistics workbook to replace the live SharePoint dataset.",
-)
+
+if st.sidebar.button("🔄 Refresh Data"):
+    st.cache_data.clear()
+    st.rerun()
 
 # ----------------------------------------------------------------------------
 # DATA PROCESSING
 # ----------------------------------------------------------------------------
 try:
-    df_raw = load_data(
-        None if uploaded is not None else DATA_PATH,
-        uploaded_file=uploaded,
-    )
+    df_raw = load_data(DATA_PATH)
 except Exception as exc:
     st.error("Unable to load the logistics workbook.")
-    st.info("Verify the link or file uploaded contains valid Excel tables.")
+    st.info("Verify the live link contains valid Excel tables.")
     with st.expander("Technical details"):
         st.code(str(exc))
     st.stop()
@@ -500,53 +485,24 @@ except Exception as exc:
 df_raw = df_raw.copy()
 df_raw.columns = [str(c).strip() for c in df_raw.columns]
 
-# STRICT PERMANENT COLUMN MAPPING FOR "STATUS" IN ALL CAPS
-auto = {
-    "client": find_col(df_raw, ["Client Name", "Client", "Customer Name", "Pharmacy", "Hospital"]),
-    "so": find_col(df_raw, ["SO", "Sales Order", "SO Number"]),
-    "value": find_col(df_raw, ["Order Value", "Value", "Amount", "Sales Value", "Total Value"]),
-    "qty": find_col(df_raw, ["N0 OF CTN'S", "NO OF CTN'S", "Qty CTN", "Quantity", "CTN"]),
-    "created_date": find_col(df_raw, ["Date Column", "Date", "Created Date", "Creation Date", "Order Date"]),
-    "created_time": find_col(df_raw, ["Created Time", "Creation Time", "Order Time"]),
-    "region": find_col(df_raw, ["Region", "Zone", "State", "Territory"]),
-    "status": find_col(df_raw, ["STATUS"], exact_caps_only=True) or find_col(df_raw, ["STATUS"]),
-    "captain": find_col(df_raw, ["Captain", "Rider", "Driver", "Captain Name"]),
-    "order_type": find_col(df_raw, ["Order Type", "Type", "Category"]),
-    "ship_date": find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"]),
-    "dispatch_time": find_col(df_raw, ["Dispatch Time", "Ship Time", "Time Dispatched"]),
-    "deliv_date": find_col(df_raw, ["Delivery Date", "Delivered Date"]),
-    "delivery_time": find_col(df_raw, ["Delivery Time", "Time Delivered"]),
-}
+# AUTOMATIC COLUMN MAPPING
+col_client = find_col(df_raw, ["Client Name", "Client", "Customer Name", "Pharmacy", "Hospital"])
+col_so = find_col(df_raw, ["SO", "Sales Order", "SO Number"])
+col_value = find_col(df_raw, ["Order Value", "Value", "Amount", "Sales Value", "Total Value"])
+col_qty = find_col(df_raw, ["N0 OF CTN'S", "NO OF CTN'S", "Qty CTN", "Quantity", "CTN"])
+col_date = find_col(df_raw, ["Date Column", "Date", "Created Date", "Creation Date", "Order Date"])
+col_create_time = find_col(df_raw, ["Created Time", "Creation Time", "Order Time"])
+col_region = find_col(df_raw, ["Region", "Zone", "State", "Territory"])
+col_status = find_col(df_raw, ["STATUS"], exact_caps_only=True) or find_col(df_raw, ["STATUS"])
+col_captain = find_col(df_raw, ["Captain", "Rider", "Driver", "Captain Name"])
+col_order_type = find_col(df_raw, ["Order Type", "Type", "Category"])
+col_ship = find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"])
+col_dispatch_time = find_col(df_raw, ["Dispatch Time", "Ship Time", "Time Dispatched"])
+col_deliv = find_col(df_raw, ["Delivery Date", "Delivered Date"])
+col_delivery_time = find_col(df_raw, ["Delivery Time", "Time Delivered"])
 
-with st.sidebar.expander("🛠️ Column Mapping", expanded=False):
-    all_cols = ["(none)"] + list(df_raw.columns)
-    def picker(label, key):
-        default = auto.get(key)
-        idx = all_cols.index(default) if default in all_cols else 0
-        choice = st.selectbox(label, all_cols, index=idx, key=f"map_{key}")
-        return None if choice == "(none)" else choice
-
-    col_client = picker("Client / Facility", "client")
-    col_so = picker("SO", "so")
-    col_value = picker("Order Value (₦)", "value")
-    col_qty = picker("Quantity (CTN)", "qty")
-    col_date = picker("Filter / Order Date Column", "created_date")
-    col_create_time = picker("Created Time", "created_time")
-    col_region = picker("Region / Hub", "region")
-    col_status = picker("Delivery Status Column (STATUS)", "status")
-    col_captain = picker("Captain / Rider", "captain")
-    col_order_type = picker("Order Type", "order_type")
-    col_ship = picker("Dispatch Date", "ship_date")
-    col_dispatch_time = picker("Dispatch Time", "dispatch_time")
-    col_deliv = picker("Delivery Date", "deliv_date")
-    col_delivery_time = picker("Delivery Time", "delivery_time")
-
-required = {
-    "Client / Facility": col_client,
-}
-missing = [name for name, value in required.items() if not value]
-if missing:
-    st.error("Please map the required field: " + ", ".join(missing))
+if not col_client:
+    st.error("Unable to identify the Client column automatically in the dataset.")
     st.stop()
 
 if not col_value:
@@ -561,7 +517,7 @@ if not col_region:
 
 df = df_raw.copy()
 
-# Filter date logic permanently derived from Date Column
+# Date handling
 if col_date and col_date in df.columns:
     df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
     df["Week"] = df[col_date].dt.isocalendar().week.fillna(0).astype(int)
@@ -603,7 +559,7 @@ else:
     df["Is Delivered"] = False
 
 # ----------------------------------------------------------------------------
-# SIDEBAR FILTERS
+# SIDEBAR FILTER PANES
 # ----------------------------------------------------------------------------
 st.sidebar.markdown("---")
 st.sidebar.markdown("### 🎛️ Operations Filters")
@@ -802,7 +758,7 @@ with tab_overview:
 with tab_captains:
     section_header("Rider & Captain Turnaround Performance")
     if not col_captain:
-        st.info("Map the Captain field to activate this view.")
+        st.info("No Captain field found in the dataset.")
     else:
         cap_df = filtered.dropna(subset=[col_captain]).copy()
         cap_df = cap_df[cap_df[col_captain].astype(str).str.strip() != ""]
