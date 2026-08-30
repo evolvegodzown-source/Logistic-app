@@ -321,7 +321,9 @@ st.title("🚚 DrugStoc Logistics Dashboard")
 st.caption(f"Live Operations Tracker | Last Refreshed: {datetime.now().strftime('%d %b %Y, %H:%M')} | "
            f"Week: **{selected_week}** | Zone: **{selected_region}** | Type: **{selected_order_type}**")
 
-tab_overview, tab_captains, tab_data = st.tabs(["📊 Executive Overview", "🧑‍✈️ Captain & Rider Efficiency", "🗂️ Audit & Raw Data"])
+tab_overview, tab_captains, tab_data, tab_assets, tab_cost = st.tabs(
+    ["📊 Executive Overview", "🧑‍✈️ Captain & Rider Efficiency", "🗂️ Audit & Raw Data", "🛠️ Asset Management", "💰 Cost Control"]
+)
 
 # ============================================================================
 # TAB 1: EXECUTIVE OVERVIEW
@@ -513,4 +515,44 @@ with tab_data:
         filtered.to_csv(index=False).encode("utf-8"),
         file_name=f"DrugStoc_Logistics_Export_{datetime.now().strftime('%Y%m%d')}.csv",
         mime="text/csv",
+    )
+
+# ============================================================================
+# TAB 4: ASSET MANAGEMENT
+# ============================================================================
+with tab_assets:
+    st.subheader("🛠️ Asset Management")
+    st.markdown(
+        "Track and manage logistics assets — vehicles, cold-chain equipment, "
+        "and pharmaceutical handling tools tied to distribution operations."
+    )
+
+    a1, a2, a3 = st.columns(3)
+    a1.metric("Active Fleet Units", "—")
+    a2.metric("Cold-Chain Assets", "—")
+    a3.metric("Assets Due for Service", "—")
+
+    st.info(
+        "Asset registry integration is pending. Connect this module to your "
+        "asset database to monitor utilization, maintenance schedules, and lifecycle status."
+    )
+
+# ============================================================================
+# TAB 5: COST CONTROL
+# ============================================================================
+with tab_cost:
+    st.subheader("💰 Cost Control")
+    st.markdown(
+        "Monitor logistics spend, cost per delivery, fuel efficiency, and "
+        "operational budget variance across regions and order types."
+    )
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Cost Per Delivery", "₦—")
+    c2.metric("Fuel & Logistics Budget", "₦—")
+    c3.metric("Budget Variance", "—%")
+
+    st.info(
+        "Cost data integration is pending. Link this module to your finance/ERP "
+        "system to unlock cost-per-route, fuel trend analysis, and budget tracking."
     )
