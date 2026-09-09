@@ -400,12 +400,12 @@ def section_header(title, note=""):
 def find_col(df, candidates, exact_caps_only=False):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return None
-    
+
     if exact_caps_only:
         for cand in candidates:
             if cand in df.columns:
                 return cand
-            
+
     cols_lower = {str(c).lower().strip(): c for c in df.columns}
     for cand in candidates:
         key = str(cand).lower().strip()
@@ -432,6 +432,116 @@ def build_timestamp(data_df, date_c, time_c):
         combined = dates.dt.strftime("%Y-%m-%d") + " " + times
         return pd.to_datetime(combined, errors="coerce")
     return dates
+
+# ----------------------------------------------------------------------------
+# KPI PERIOD-COMPARISON HELPERS (WoW / MoM)
+# ----------------------------------------------------------------------------
+COMPARE_KPIS = [
+    "Order Volume",
+    "Fulfilment Rate",
+    "TAT: Order to Delivery",
+    "TAT: Dispatch to Delivery",
+]
+
+def compute_period_kpis(frame):
+    """Compute the 4 core operational KPIs for a given dataframe slice."""
+    orders = int(len(frame))
+    delivered = int(frame["Is Delivered"].sum()) if orders else 0
+    fulfil = (delivered / orders * 100.0) if orders else 0.0
+    tat_order = frame["Creation_Delivery_TAT"].mean()
+    tat_dispatch = frame["Shipping_TAT"].mean()
+    return {
+        "Order Volume": float(orders),
+        "Fulfilment Rate": float(fulfil),
+        "TAT: Order to Delivery": float(tat_order) if pd.notna(tat_order) else 0.0,
+        "TAT: Dispatch to Delivery": float(tat_dispatch) if pd.notna(tat_dispatch) else 0.0,
+    }
+
+def pct_change(current, previous):
+    """Percentage change between two values; None if not computable."""
+    if previous is None or pd.isna(previous) or previous == 0:
+        return None
+    return ((current - previous) / abs(previous)) * 100.0
+
+def format_kpi_value(kpi_name, value):
+    """Human-readable formatting per KPI type."""
+    if kpi_name == "Order Volume":
+        return fmt_num(value)
+    if kpi_name == "Fulfilment Rate":
+        return f"{value:.1f}%"
+    return f"{value:.1f} hrs"
+
+def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_label):
+    """
+    Build a donut pie chart comparing the current period against the previous
+    period for a single KPI. Slice size = share of the combined total.
+    """
+    curr = max(float(current_val), 0.0)
+    prev = max(float(previous_val), 0.0)
+    delta = pct_change(curr, prev)
+
+    # For TAT metrics a decrease is an improvement; for volume/rate an increase is.
+    lower_is_better = kpi_name.startswith("TAT")
+    if delta is None:
+        delta_color = THEME["muted"]
+        delta_text = "Δ N/A (no baseline)"
+    else:
+        improved = (delta < 0) if lower_is_better else (delta > 0)
+        delta_color = BRAND["green"] if improved else BRAND["red"]
+        arrow = "▲" if delta >= 0 else "▼"
+        delta_text = f"{arrow} {abs(delta):.1f}% WoW" if "W" in current_label else f"{arrow} {abs(delta):.1f}% MoM"
+
+    fig = go.Figure(
+        data=[
+            go.Pie(
+                labels=[
+                    f"Current · {current_label}",
+                    f"Previous · {previous_label}",
+                ],
+                values=[curr, prev],
+                hole=0.58,
+                sort=False,
+                direction="clockwise",
+                marker=dict(colors=[BRAND["blue"], "#4C6A86"]),
+                textinfo="label+percent",
+                textfont=dict(color=THEME["text"], size=11),
+                customdata=[
+                    format_kpi_value(kpi_name, curr),
+                    format_kpi_value(kpi_name, prev),
+                ],
+                hovertemplate=(
+                    "%{label}<br>Value: %{customdata}<br>"
+                    "Share of combined: %{percent}<extra></extra>"
+                ),
+            )
+        ]
+    )
+    fig = plotly_theme(fig)
+    fig.update_layout(
+        title=dict(
+            text=(
+                f"{kpi_name}<br>"
+                f"<span style='font-size:11px;color:{THEME['muted']}'>"
+                f"Current: {format_kpi_value(kpi_name, curr)} &nbsp;·&nbsp; "
+                f"Previous: {format_kpi_value(kpi_name, prev)} &nbsp;·&nbsp; "
+                f"<span style='color:{delta_color};font-weight:800;'>{delta_text}</span>"
+                f"</span>"
+            ),
+            font=dict(size=13, color=THEME["text"]),
+        ),
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            yanchor="bottom",
+            y=-0.25,
+            x=0.5,
+            xanchor="center",
+            font=dict(size=10, color=THEME["muted"]),
+        ),
+        height=330,
+        margin=dict(l=10, r=10, t=92, b=10),
+    )
+    return fig
 
 # ----------------------------------------------------------------------------
 # DATA LOADING
@@ -619,8 +729,15 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab_overview, tab_captains, tab_data, tab_assets, tab_cost = st.tabs(
-    ["📊 Executive Overview", "🧑‍✈️ Captain Efficiency", "🗂️ Audit Data", "🛠️ Asset Management", "💰 Cost Control"]
+tab_overview, tab_captains, tab_data, tab_assets, tab_cost, tab_compare = st.tabs(
+    [
+        "📊 Executive Overview",
+        "🧑‍✈️ Captain Efficiency",
+        "🗂️ Audit Data",
+        "🛠️ Asset Management",
+        "💰 Cost Control",
+        "📈 WoW / MoM Comparison",
+    ]
 )
 
 # ============================================================================
@@ -843,4 +960,86 @@ with tab_cost:
     st.info(
         "Cost data integration is pending. Link this module to your finance/ERP "
         "system to unlock cost-per-route, fuel trend analysis, and budget tracking."
+    )
+
+# ============================================================================
+# TAB 6: WoW / MoM KPI COMPARISON
+# ============================================================================
+with tab_compare:
+    section_header(
+        "Week-on-Week & Month-on-Month Performance",
+        "Pie-chart share comparison across the 4 core operational KPIs",
+    )
+
+    # Reference date = latest available order date in the dataset
+    if col_date and col_date in df.columns and df[col_date].notna().any():
+        ref_date = df[col_date].max()
+    else:
+        ref_date = pd.Timestamp.today()
+
+    # ------------------------- WEEK BOUNDARIES -------------------------
+    week_start = ref_date - pd.Timedelta(days=int(ref_date.weekday()))
+    prev_week_start = week_start - pd.Timedelta(days=7)
+    prev_week_end = week_start - pd.Timedelta(days=1)
+
+    curr_week_df = df[(df[col_date] >= week_start) & (df[col_date] <= ref_date)]
+    prev_week_df = df[(df[col_date] >= prev_week_start) & (df[col_date] <= prev_week_end)]
+
+    curr_week_label = f"W{int(week_start.isocalendar().week):02d}"
+    prev_week_label = f"W{int(prev_week_start.isocalendar().week):02d}"
+
+    # ------------------------- MONTH BOUNDARIES ------------------------
+    month_start = ref_date.replace(day=1)
+    prev_month_end = month_start - pd.Timedelta(days=1)
+    prev_month_start = prev_month_end.replace(day=1)
+
+    curr_month_df = df[(df[col_date] >= month_start) & (df[col_date] <= ref_date)]
+    prev_month_df = df[(df[col_date] >= prev_month_start) & (df[col_date] <= prev_month_end)]
+
+    curr_month_label = month_start.strftime("%b %Y")
+    prev_month_label = prev_month_start.strftime("%b %Y")
+
+    # --------------------------- WEEK-ON-WEEK --------------------------
+    st.markdown(
+        f"**📅 Week-on-Week** — {curr_week_label} vs {prev_week_label} &nbsp;|&nbsp; "
+        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
+        f"{week_start:%d %b} – {ref_date:%d %b %Y} vs {prev_week_start:%d %b} – {prev_week_end:%d %b %Y}</span>",
+        unsafe_allow_html=True,
+    )
+    wow_curr = compute_period_kpis(curr_week_df)
+    wow_prev = compute_period_kpis(prev_week_df)
+
+    wow_cols = st.columns(4)
+    for col, kpi in zip(wow_cols, COMPARE_KPIS):
+        with col:
+            st.plotly_chart(
+                comparison_pie(kpi, wow_curr[kpi], wow_prev[kpi], curr_week_label, prev_week_label),
+                use_container_width=True,
+            )
+
+    st.markdown("---")
+
+    # -------------------------- MONTH-ON-MONTH -------------------------
+    st.markdown(
+        f"**🗓️ Month-on-Month** — {curr_month_label} vs {prev_month_label} &nbsp;|&nbsp; "
+        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
+        f"{month_start:%d %b} – {ref_date:%d %b %Y} vs {prev_month_start:%d %b} – {prev_month_end:%d %b %Y}</span>",
+        unsafe_allow_html=True,
+    )
+    mom_curr = compute_period_kpis(curr_month_df)
+    mom_prev = compute_period_kpis(prev_month_df)
+
+    mom_cols = st.columns(4)
+    for col, kpi in zip(mom_cols, COMPARE_KPIS):
+        with col:
+            st.plotly_chart(
+                comparison_pie(kpi, mom_curr[kpi], mom_prev[kpi], curr_month_label, prev_month_label),
+                use_container_width=True,
+            )
+
+    st.markdown("---")
+    st.caption(
+        "ℹ️ Slice size represents each period's share of the combined total. "
+        "TAT deltas are colour-coded green when turnaround improves (decreases). "
+        "Comparison uses the full dataset, ignoring the sidebar filters."
     )
