@@ -54,6 +54,7 @@ st.markdown(
         :root {{
             --ds-blue: {BRAND["blue"]};
             --ds-green: {BRAND["green"]};
+            --ds-red: {BRAND["red"]};
             --ds-navy: {BRAND["navy"]};
             --ds-page: {THEME["page"]};
             --ds-surface: {THEME["surface"]};
@@ -290,6 +291,82 @@ st.markdown(
             color: var(--ds-muted) !important;
             font-size: .76rem;
         }}
+        .comparison-legend {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 16px;
+            color: var(--ds-muted);
+            font-size: .76rem;
+            margin: 4px 0 12px 0;
+        }}
+        .comparison-legend span {{
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+        }}
+        .comparison-legend i {{
+            width: 11px;
+            height: 11px;
+            display: inline-block;
+            border-radius: 2px;
+        }}
+        .legend-current {{ background: var(--ds-blue); }}
+        .legend-previous {{ background: #587896; }}
+        .legend-increase {{ background: var(--ds-green); }}
+        .legend-decrease {{ background: var(--ds-red, #EF4444); }}
+        .comparison-period {{
+            margin: 14px 0 8px 0 !important;
+            color: var(--ds-text) !important;
+        }}
+        .comparison-grid {{
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 12px;
+        }}
+        .comparison-card {{
+            background: var(--ds-surface);
+            border: 1px solid var(--ds-border);
+            border-radius: 12px;
+            padding: 14px;
+        }}
+        .comparison-title {{
+            color: var(--ds-text);
+            font-size: .78rem;
+            font-weight: 800;
+            min-height: 2.2em;
+        }}
+        .comparison-values {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 12px;
+        }}
+        .comparison-values div {{
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }}
+        .comparison-label {{
+            color: var(--ds-muted);
+            font-size: .68rem;
+        }}
+        .comparison-values strong {{
+            color: var(--ds-text);
+            font-size: 1rem;
+        }}
+        .comparison-change {{
+            font-size: .72rem;
+            font-weight: 800;
+            margin-top: 12px;
+        }}
+        .comparison-change.increase {{ color: var(--ds-green); }}
+        .comparison-change.decrease {{ color: var(--ds-red, #EF4444); }}
+        @media (max-width: 900px) {{
+            .comparison-grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }}
+        }}
+        @media (max-width: 520px) {{
+            .comparison-grid {{ grid-template-columns: 1fr; }}
+        }}
         .stTabs [data-baseweb="tab-list"] {{
             gap: 8px;
             background: transparent;
@@ -325,6 +402,94 @@ def money(value):
 
 def fmt_num(value):
     return f"{value:,.0f}"
+
+def comparison_periods(data_df):
+    dated = data_df["Created_DT"].dropna()
+    if dated.empty:
+        return None
+
+    latest_date = dated.max().normalize()
+    current_week_start = latest_date - pd.Timedelta(days=latest_date.weekday())
+    current_month_start = latest_date.replace(day=1)
+    previous_month_end = current_month_start - pd.Timedelta(days=1)
+    return {
+        "WoW": (
+            data_df["Created_DT"].ge(current_week_start)
+            & data_df["Created_DT"].lt(current_week_start + pd.Timedelta(days=7)),
+            data_df["Created_DT"].ge(current_week_start - pd.Timedelta(days=7))
+            & data_df["Created_DT"].lt(current_week_start),
+        ),
+        "MoM": (
+            data_df["Created_DT"].ge(current_month_start)
+            & data_df["Created_DT"].lt(current_month_start + pd.offsets.MonthBegin(1)),
+            data_df["Created_DT"].ge(previous_month_end.replace(day=1))
+            & data_df["Created_DT"].lt(current_month_start),
+        ),
+    }
+
+def comparison_metrics(data_df, mask):
+    period = data_df.loc[mask]
+    orders = len(period)
+    return {
+        "Order Volume": float(orders),
+        "Fulfillment Rate": float(period["Is Delivered"].mean() * 100) if orders else 0.0,
+        "TAT: Order to Delivery": float(period["Creation_Delivery_TAT"].mean()) if orders else 0.0,
+        "TAT: Dispatch to Delivery": float(period["Shipping_TAT"].mean()) if orders else 0.0,
+    }
+
+def comparison_value(metric, value):
+    if metric == "Order Volume":
+        return f"{value:,.0f}"
+    if metric == "Fulfillment Rate":
+        return f"{value:.1f}%"
+    return f"{value:.1f} hrs"
+
+def render_comparison_section(data_df):
+    periods = comparison_periods(data_df)
+    if periods is None:
+        show_empty_chart("No dated records are available for WoW/MoM comparison.")
+        return
+
+    st.markdown(
+        "<div class='comparison-legend'>"
+        "<span><i class='legend-current'></i>Current period</span>"
+        "<span><i class='legend-previous'></i>Previous period</span>"
+        "<span><i class='legend-increase'></i>Increase</span>"
+        "<span><i class='legend-decrease'></i>Decrease</span>"
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    metric_order = [
+        "Order Volume",
+        "Fulfillment Rate",
+        "TAT: Order to Delivery",
+        "TAT: Dispatch to Delivery",
+    ]
+    for comparison_name, (current_mask, previous_mask) in periods.items():
+        current = comparison_metrics(data_df, current_mask)
+        previous = comparison_metrics(data_df, previous_mask)
+        cards = []
+        for metric in metric_order:
+            current_value = current[metric]
+            previous_value = previous[metric]
+            change = current_value - previous_value
+            change_pct = (change / previous_value * 100) if previous_value else 0.0
+            change_class = "increase" if change >= 0 else "decrease"
+            change_symbol = "▲" if change >= 0 else "▼"
+            cards.append(
+                f"""
+                <div class='comparison-card'>
+                    <div class='comparison-title'>{metric}</div>
+                    <div class='comparison-values'>
+                        <div><span class='comparison-label'>Current</span><strong>{comparison_value(metric, current_value)}</strong></div>
+                        <div><span class='comparison-label'>Previous</span><strong>{comparison_value(metric, previous_value)}</strong></div>
+                    </div>
+                    <div class='comparison-change {change_class}'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
+                </div>
+                """
+            )
+        st.markdown(f"<h3 class='comparison-period'>{comparison_name}</h3>", unsafe_allow_html=True)
+        st.markdown("<div class='comparison-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
 
 def kpi_card(label, value, description, icon="•", accent=None):
     accent = accent or BRAND["blue"]
@@ -703,6 +868,14 @@ if selected_status != "All Statuses":
 if selected_order_type != "All Order Types" and col_order_type:
     filtered = filtered[filtered[col_order_type].astype(str).str.strip() == selected_order_type]
 
+comparison_base = df.copy()
+if selected_region != "All Regions":
+    comparison_base = comparison_base[comparison_base[col_region].astype(str) == selected_region]
+if selected_status != "All Statuses":
+    comparison_base = comparison_base[comparison_base[col_status] == selected_status]
+if selected_order_type != "All Order Types" and col_order_type:
+    comparison_base = comparison_base[comparison_base[col_order_type].astype(str).str.strip() == selected_order_type]
+
 # ----------------------------------------------------------------------------
 # HERO HEADER
 # ----------------------------------------------------------------------------
@@ -815,6 +988,12 @@ with tab_overview:
             ),
         ]
     )
+
+    section_header(
+        "Week-on-Week & Month-on-Month Performance",
+        "Green indicates an increase; red indicates a decrease.",
+    )
+    render_comparison_section(comparison_base)
 
     section_header("Network Performance")
     col_a, col_b = st.columns(2)
