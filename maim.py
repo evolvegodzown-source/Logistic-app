@@ -471,25 +471,26 @@ def format_kpi_value(kpi_name, value):
         return f"{value:.1f}%"
     return f"{value:.1f} hrs"
 
-def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_label):
+def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_label, delta_label=""):
     """
     Build a donut pie chart comparing the current period against the previous
     period for a single KPI. Slice size = share of the combined total.
+
+    Colour rule (requested): GREEN = increase, RED = decrease.
     """
     curr = max(float(current_val), 0.0)
     prev = max(float(previous_val), 0.0)
     delta = pct_change(curr, prev)
 
-    # For TAT metrics a decrease is an improvement; for volume/rate an increase is.
-    lower_is_better = kpi_name.startswith("TAT")
     if delta is None:
         delta_color = THEME["muted"]
         delta_text = "Δ N/A (no baseline)"
     else:
-        improved = (delta < 0) if lower_is_better else (delta > 0)
-        delta_color = BRAND["green"] if improved else BRAND["red"]
+        # Directional colouring: green = increase, red = decrease
+        delta_color = BRAND["green"] if delta > 0 else BRAND["red"]
         arrow = "▲" if delta >= 0 else "▼"
-        delta_text = f"{arrow} {abs(delta):.1f}% WoW" if "W" in current_label else f"{arrow} {abs(delta):.1f}% MoM"
+        suffix = f" {delta_label}" if delta_label else ""
+        delta_text = f"{arrow} {abs(delta):.1f}%{suffix}"
 
     fig = go.Figure(
         data=[
@@ -542,6 +543,14 @@ def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_
         margin=dict(l=10, r=10, t=92, b=10),
     )
     return fig
+
+def parse_week_label(label):
+    """Parse 'W36 - 2026' into (iso_year, iso_week) and the Monday Timestamp."""
+    week_part, year_part = label.split(" - ")
+    iso_week = int(week_part[1:3])
+    iso_year = int(year_part)
+    monday = pd.Timestamp(datetime.fromisocalendar(iso_year, iso_week, 1))
+    return iso_year, iso_week, monday
 
 # ----------------------------------------------------------------------------
 # DATA LOADING
@@ -963,47 +972,51 @@ with tab_cost:
     )
 
 # ============================================================================
-# TAB 6: WoW / MoM KPI COMPARISON
+# TAB 6: WoW / MoM KPI COMPARISON + 2026 WoW TREND
 # ============================================================================
 with tab_compare:
     section_header(
         "Week-on-Week & Month-on-Month Performance",
-        "Pie-chart share comparison across the 4 core operational KPIs",
+        "Green = increase · Red = decrease · Slice = share of combined total",
     )
 
-    # Reference date = latest available order date in the dataset
-    if col_date and col_date in df.columns and df[col_date].notna().any():
-        ref_date = df[col_date].max()
-    else:
-        ref_date = pd.Timestamp.today()
+    if not col_date or col_date not in df.columns or df[col_date].notna().sum() == 0:
+        st.info("No usable date column found — period comparison is unavailable.")
+        st.stop()
 
-    # ------------------------- WEEK BOUNDARIES -------------------------
-    week_start = ref_date - pd.Timedelta(days=int(ref_date.weekday()))
+    # ------------------------- WEEK FILTER -----------------------------
+    week_label_options = sorted(
+        [w for w in df["Week Label"].dropna().unique() if w != "Unassigned Date"],
+        key=lambda w: parse_week_label(w)[:2],  # sort by (iso_year, iso_week)
+    )
+    if not week_label_options:
+        st.info("No week labels available in the dataset.")
+        st.stop()
+
+    default_idx = len(week_label_options) - 1
+    selected_cmp_week = st.selectbox(
+        "📅 Reference Week (compared against the previous week)",
+        week_label_options,
+        index=default_idx,
+        key="cmp_week_selector",
+    )
+
+    wk_year, wk_num, week_start = parse_week_label(selected_cmp_week)
+    week_end = week_start + pd.Timedelta(days=6)
     prev_week_start = week_start - pd.Timedelta(days=7)
     prev_week_end = week_start - pd.Timedelta(days=1)
 
-    curr_week_df = df[(df[col_date] >= week_start) & (df[col_date] <= ref_date)]
+    curr_week_df = df[(df[col_date] >= week_start) & (df[col_date] <= week_end)]
     prev_week_df = df[(df[col_date] >= prev_week_start) & (df[col_date] <= prev_week_end)]
 
-    curr_week_label = f"W{int(week_start.isocalendar().week):02d}"
-    prev_week_label = f"W{int(prev_week_start.isocalendar().week):02d}"
+    curr_week_label = f"W{wk_num:02d}"
+    prev_week_label = f"W{wk_num - 1:02d}" if wk_num > 1 else "W52"
 
-    # ------------------------- MONTH BOUNDARIES ------------------------
-    month_start = ref_date.replace(day=1)
-    prev_month_end = month_start - pd.Timedelta(days=1)
-    prev_month_start = prev_month_end.replace(day=1)
-
-    curr_month_df = df[(df[col_date] >= month_start) & (df[col_date] <= ref_date)]
-    prev_month_df = df[(df[col_date] >= prev_month_start) & (df[col_date] <= prev_month_end)]
-
-    curr_month_label = month_start.strftime("%b %Y")
-    prev_month_label = prev_month_start.strftime("%b %Y")
-
-    # --------------------------- WEEK-ON-WEEK --------------------------
+    # --------------------------- WEEK-ON-WEEK ---------------------------
     st.markdown(
         f"**📅 Week-on-Week** — {curr_week_label} vs {prev_week_label} &nbsp;|&nbsp; "
         f"<span style='color:{THEME['muted']};font-size:.8rem'>"
-        f"{week_start:%d %b} – {ref_date:%d %b %Y} vs {prev_week_start:%d %b} – {prev_week_end:%d %b %Y}</span>",
+        f"{week_start:%d %b} – {week_end:%d %b %Y} vs {prev_week_start:%d %b} – {prev_week_end:%d %b %Y}</span>",
         unsafe_allow_html=True,
     )
     wow_curr = compute_period_kpis(curr_week_df)
@@ -1013,33 +1026,178 @@ with tab_compare:
     for col, kpi in zip(wow_cols, COMPARE_KPIS):
         with col:
             st.plotly_chart(
-                comparison_pie(kpi, wow_curr[kpi], wow_prev[kpi], curr_week_label, prev_week_label),
+                comparison_pie(
+                    kpi, wow_curr[kpi], wow_prev[kpi],
+                    curr_week_label, prev_week_label,
+                    delta_label="WoW",
+                ),
                 use_container_width=True,
             )
 
     st.markdown("---")
 
-    # -------------------------- MONTH-ON-MONTH -------------------------
-    st.markdown(
-        f"**🗓️ Month-on-Month** — {curr_month_label} vs {prev_month_label} &nbsp;|&nbsp; "
-        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
-        f"{month_start:%d %b} – {ref_date:%d %b %Y} vs {prev_month_start:%d %b} – {prev_month_end:%d %b %Y}</span>",
-        unsafe_allow_html=True,
+    # -------------------------- MONTH-ON-MONTH --------------------------
+    month_label_options = sorted(
+        [m for m in df["Month Label"].dropna().unique() if m != "Unassigned Date"],
+        key=lambda m: pd.Timestamp(m),
     )
-    mom_curr = compute_period_kpis(curr_month_df)
-    mom_prev = compute_period_kpis(prev_month_df)
+    if not month_label_options:
+        st.info("No month labels available in the dataset.")
+    else:
+        default_month_idx = len(month_label_options) - 1
+        selected_cmp_month = st.selectbox(
+            "🗓️ Reference Month (compared against the previous month)",
+            month_label_options,
+            index=default_month_idx,
+            key="cmp_month_selector",
+        )
 
-    mom_cols = st.columns(4)
-    for col, kpi in zip(mom_cols, COMPARE_KPIS):
-        with col:
-            st.plotly_chart(
-                comparison_pie(kpi, mom_curr[kpi], mom_prev[kpi], curr_month_label, prev_month_label),
-                use_container_width=True,
+        # Full selected month vs full previous month (independent of week filter)
+        month_start = pd.Timestamp(selected_cmp_month)
+        next_month_start = month_start + pd.offsets.MonthBegin(1)
+        prev_month_end = month_start - pd.Timedelta(days=1)
+        prev_month_start = prev_month_end.replace(day=1)
+
+        curr_month_df = df[(df[col_date] >= month_start) & (df[col_date] < next_month_start)]
+        prev_month_df = df[(df[col_date] >= prev_month_start) & (df[col_date] <= prev_month_end)]
+
+        curr_month_label = month_start.strftime("%b %Y")
+        prev_month_label = prev_month_start.strftime("%b %Y")
+
+        st.markdown(
+            f"**🗓️ Month-on-Month** — {curr_month_label} vs {prev_month_label} &nbsp;|&nbsp; "
+            f"<span style='color:{THEME['muted']};font-size:.8rem'>"
+            f"Full month: {month_start:%d %b} – {next_month_start - pd.Timedelta(days=1):%d %b %Y} vs "
+            f"{prev_month_start:%d %b} – {prev_month_end:%d %b %Y}</span>",
+            unsafe_allow_html=True,
+        )
+        mom_curr = compute_period_kpis(curr_month_df)
+        mom_prev = compute_period_kpis(prev_month_df)
+
+        mom_cols = st.columns(4)
+        for col, kpi in zip(mom_cols, COMPARE_KPIS):
+            with col:
+                st.plotly_chart(
+                    comparison_pie(
+                        kpi, mom_curr[kpi], mom_prev[kpi],
+                        curr_month_label, prev_month_label,
+                        delta_label="MoM",
+                    ),
+                    use_container_width=True,
+                )
+
+    st.markdown("---")
+
+    # ------------------- 2026 WoW TREND LINE GRAPH ----------------------
+    section_header(
+        "2026 Week-on-Week Trend",
+        "Weekly KPI movement across 2026 · select a metric below",
+    )
+
+    trend_metric = st.selectbox(
+        "📊 Trend Metric",
+        COMPARE_KPIS,
+        index=0,
+        key="trend_metric_selector",
+    )
+
+    df_2026 = df[df["Year"] == 2026].copy()
+    if df_2026.empty:
+        show_empty_chart("No records found for the year 2026.")
+    else:
+        weekly = (
+            df_2026.groupby("Week Label", as_index=False)
+            .agg(
+                Orders=("Is Delivered", "size"),
+                Delivered=("Is Delivered", "sum"),
+                TAT_Order=("Creation_Delivery_TAT", "mean"),
+                TAT_Dispatch=("Shipping_TAT", "mean"),
+            )
+        )
+        weekly["Order Volume"] = weekly["Orders"].astype(float)
+        weekly["Fulfilment Rate"] = np.where(
+            weekly["Orders"] > 0,
+            weekly["Delivered"] / weekly["Orders"] * 100.0,
+            0.0,
+        )
+        weekly["TAT: Order to Delivery"] = weekly["TAT_Order"].fillna(0.0)
+        weekly["TAT: Dispatch to Delivery"] = weekly["TAT_Dispatch"].fillna(0.0)
+
+        # Chronological sort by (iso_year, iso_week)
+        weekly["_sort"] = weekly["Week Label"].apply(lambda w: parse_week_label(w)[:2])
+        weekly = weekly.sort_values("_sort").reset_index(drop=True)
+
+        # WoW % change for hover + colour signal
+        weekly["WoW %"] = weekly[trend_metric].pct_change() * 100.0
+
+        y_title = {
+            "Order Volume": "Orders",
+            "Fulfilment Rate": "Fulfilment (%)",
+            "TAT: Order to Delivery": "Hours",
+            "TAT: Dispatch to Delivery": "Hours",
+        }[trend_metric]
+
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=weekly["Week Label"],
+                y=weekly[trend_metric],
+                mode="lines+markers",
+                name=trend_metric,
+                line=dict(color=BRAND["blue"], width=2.5),
+                marker=dict(size=7, color=BRAND["blue"], line=dict(color="#FFFFFF", width=1)),
+                customdata=np.stack(
+                    [
+                        weekly["WoW %"],
+                        weekly["Order Volume"],
+                        weekly["Fulfilment Rate"],
+                        weekly["TAT: Order to Delivery"],
+                        weekly["TAT: Dispatch to Delivery"],
+                    ],
+                    axis=-1,
+                ),
+                hovertemplate=(
+                    "<b>%{x}</b><br>"
+                    f"{trend_metric}: %{{y:.2f}}<br>"
+                    "WoW change: %{customdata[0]:+.1f}%<br>"
+                    "<span style='font-size:10px;color:#A9BCD0'>"
+                    "Orders: %{customdata[1]:,.0f} · Fulfilment: %{customdata[2]:.1f}%<br>"
+                    "TAT Order→Del: %{customdata[3]:.1f}h · TAT Disp→Del: %{customdata[4]:.1f}h"
+                    "</span><extra></extra>"
+                ),
+            )
+        )
+        fig = plotly_theme(fig)
+        fig.update_layout(
+            height=420,
+            xaxis_title="Week (2026)",
+            yaxis_title=y_title,
+            showlegend=False,
+            margin=dict(l=24, r=24, t=40, b=28),
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+        # Latest-week delta summary under the chart
+        latest = weekly.dropna(subset=["WoW %"])
+        if not latest.empty:
+            last_row = latest.iloc[-1]
+            delta_val = last_row["WoW %"]
+            delta_color = BRAND["green"] if delta_val > 0 else BRAND["red"]
+            arrow = "▲" if delta_val >= 0 else "▼"
+            st.markdown(
+                f"<span style='color:{THEME['muted']};font-size:.85rem'>"
+                f"Latest week ({last_row['Week Label']}): "
+                f"<b style='color:{THEME['text']}'>{format_kpi_value(trend_metric, last_row[trend_metric])}</b> · "
+                f"<b style='color:{delta_color}'>{arrow} {abs(delta_val):.1f}% WoW</b>"
+                f"</span>",
+                unsafe_allow_html=True,
             )
 
     st.markdown("---")
     st.caption(
         "ℹ️ Slice size represents each period's share of the combined total. "
-        "TAT deltas are colour-coded green when turnaround improves (decreases). "
+        "Delta colouring: GREEN = increase vs previous period, RED = decrease. "
+        "Week filter drives the WoW comparison (selected week vs previous week); "
+        "month filter independently drives the MoM comparison (selected month vs previous month). "
         "Comparison uses the full dataset, ignoring the sidebar filters."
     )
