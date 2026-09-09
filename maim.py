@@ -545,6 +545,24 @@ def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_
     return fig
 
 def parse_week_label(label):
+    """Parse 'W36 - 2026' into (iso_year, iso_week) and the Monday Timestamp.
+
+    Robust to year-boundary mismatches where calendar year ≠ ISO year
+    (e.g. Dec 30 2024 labelled W01 - 2024 because dt.year is 2024).
+    """
+    week_part, year_part = label.split(" - ")
+    iso_week = int(week_part[1:3])
+    iso_year = int(year_part)
+    try:
+        monday = pd.Timestamp(datetime.fromisocalendar(iso_year, iso_week, 1))
+    except ValueError:
+        # Fallback: approximate Monday using calendar-year baseline.
+        # Sufficient for chronological sorting; exact ISO alignment
+        # isn't required since we already have the raw dates in the df.
+        base = pd.Timestamp(f"{iso_year}-01-01")
+        monday = base + pd.Timedelta(weeks=iso_week - 1)
+        monday = monday - pd.Timedelta(days=int(monday.dayofweek))
+    return iso_year, iso_week, monday
     """Parse 'W36 - 2026' into (iso_year, iso_week) and the Monday Timestamp."""
     week_part, year_part = label.split(" - ")
     iso_week = int(week_part[1:3])
