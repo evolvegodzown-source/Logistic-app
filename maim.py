@@ -476,6 +476,7 @@ def render_comparison_section(data_df):
             change_pct = (change / previous_value * 100) if previous_value else 0.0
             change_class = "increase" if change >= 0 else "decrease"
             change_symbol = "▲" if change >= 0 else "▼"
+            change_color = BRAND["green"] if change >= 0 else BRAND["red"]
             cards.append(
                 f"""
                 <div class='comparison-card'>
@@ -484,7 +485,7 @@ def render_comparison_section(data_df):
                         <div><span class='comparison-label'>Current</span><strong>{comparison_value(metric, current_value)}</strong></div>
                         <div><span class='comparison-label'>Previous</span><strong>{comparison_value(metric, previous_value)}</strong></div>
                     </div>
-                    <div class='comparison-change {change_class}'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
+                    <div class='comparison-change {change_class}' style='color: {change_color} !important;'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
                 </div>
                 """
             )
@@ -562,10 +563,78 @@ def section_header(title, note=""):
         unsafe_allow_html=True,
     )
 
+def render_performance_trend(data_df):
+    trend_df = data_df.dropna(subset=["Created_DT"]).copy()
+    if trend_df.empty:
+        show_empty_chart("No dated records are available for the performance trend.")
+        return
+
+    control_date, control_metric = st.columns(2)
+    with control_date:
+        date_granularity = st.selectbox(
+            "Order Date",
+            ["Week", "Month"],
+            key="performance_trend_date",
+        )
+    with control_metric:
+        metric_label = st.selectbox(
+            "Metric",
+            [
+                "Fulfillment",
+                "TAT: Creation to Delivery",
+                "TAT: Dispatch to Delivery",
+            ],
+            key="performance_trend_metric",
+        )
+
+    if date_granularity == "Week":
+        trend_df["Period"] = trend_df["Created_DT"].dt.to_period("W").dt.start_time
+        period_format = "%d %b %Y"
+    else:
+        trend_df["Period"] = trend_df["Created_DT"].dt.to_period("M").dt.start_time
+        period_format = "%b %Y"
+
+    metric_columns = {
+        "Fulfillment": ("Is Delivered", "Fulfillment Rate (%)"),
+        "TAT: Creation to Delivery": ("Creation_Delivery_TAT", "Average TAT (hrs)"),
+        "TAT: Dispatch to Delivery": ("Shipping_TAT", "Average TAT (hrs)"),
+    }
+    value_column, y_axis_title = metric_columns[metric_label]
+    trend = (
+        trend_df.groupby("Period", as_index=False)[value_column]
+        .mean()
+        .rename(columns={value_column: "Value"})
+        .sort_values("Period")
+    )
+    if metric_label == "Fulfillment":
+        trend["Value"] = trend["Value"] * 100
+
+    if trend.empty:
+        show_empty_chart("No data is available for the selected trend.")
+        return
+
+    fig = px.line(
+        trend,
+        x="Period",
+        y="Value",
+        markers=True,
+        title=f"{metric_label} by Order Date ({date_granularity})",
+        labels={"Period": "Order Date", "Value": y_axis_title},
+    )
+    fig.update_traces(
+        line=dict(color=BRAND["blue"], width=3),
+        marker=dict(color=BRAND["green"], size=8),
+        hovertemplate=(
+            f"Order Date: %{{x|{period_format}}}<br>"
+            f"{y_axis_title}: %{{y:.1f}}<extra></extra>"
+        ),
+    )
+    fig.update_layout(showlegend=False, height=390)
+    st.plotly_chart(plotly_theme(fig), use_container_width=True)
+
 def find_col(df, candidates, exact_caps_only=False):
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
         return None
-
     if exact_caps_only:
         for cand in candidates:
             if cand in df.columns:
@@ -994,6 +1063,9 @@ with tab_overview:
         "Green indicates an increase; red indicates a decrease.",
     )
     render_comparison_section(comparison_base)
+
+    section_header("Performance Trend", "Track fulfillment and delivery turnaround over time.")
+    render_performance_trend(filtered)
 
     section_header("Network Performance")
     col_a, col_b = st.columns(2)
