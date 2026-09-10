@@ -1,4 +1,5 @@
 import io
+import textwrap
 from datetime import datetime
 import numpy as np
 import pandas as pd
@@ -478,16 +479,18 @@ def render_comparison_section(data_df):
             change_symbol = "▲" if change >= 0 else "▼"
             change_color = BRAND["green"] if change >= 0 else BRAND["red"]
             cards.append(
-                f"""
-                <div class='comparison-card'>
-                    <div class='comparison-title'>{metric}</div>
-                    <div class='comparison-values'>
-                        <div><span class='comparison-label'>Current</span><strong>{comparison_value(metric, current_value)}</strong></div>
-                        <div><span class='comparison-label'>Previous</span><strong>{comparison_value(metric, previous_value)}</strong></div>
+                textwrap.dedent(
+                    f"""
+                    <div class='comparison-card'>
+                        <div class='comparison-title'>{metric}</div>
+                        <div class='comparison-values'>
+                            <div><span class='comparison-label'>Current</span><strong>{comparison_value(metric, current_value)}</strong></div>
+                            <div><span class='comparison-label'>Previous</span><strong>{comparison_value(metric, previous_value)}</strong></div>
+                        </div>
+                        <div class='comparison-change {change_class}' style='color: {change_color} !important;'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
                     </div>
-                    <div class='comparison-change {change_class}' style='color: {change_color} !important;'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
-                </div>
-                """
+                    """
+                ).strip()
             )
         st.markdown(f"<h3 class='comparison-period'>{comparison_name}</h3>", unsafe_allow_html=True)
         st.markdown("<div class='comparison-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
@@ -1222,28 +1225,19 @@ with tab_compare:
         "Pie-chart share comparison across the 4 core operational KPIs",
     )
 
-    dated_comparison_df = df.dropna(subset=["Created_DT"])
-    if dated_comparison_df.empty:
-        st.info("No valid order dates are available for WoW/MoM comparison.")
-        st.stop()
-
-    # Use the normalized timestamp so missing or time-formatted source columns
-    # cannot break the comparison tab.
-    ref_date = dated_comparison_df["Created_DT"].max().normalize()
+    # Reference date = latest available order date in the dataset
+    if col_date and col_date in df.columns and df[col_date].notna().any():
+        ref_date = df[col_date].max()
+    else:
+        ref_date = pd.Timestamp.today()
 
     # ------------------------- WEEK BOUNDARIES -------------------------
     week_start = ref_date - pd.Timedelta(days=int(ref_date.weekday()))
     prev_week_start = week_start - pd.Timedelta(days=7)
     prev_week_end = week_start - pd.Timedelta(days=1)
 
-    curr_week_df = dated_comparison_df[
-        (dated_comparison_df["Created_DT"] >= week_start)
-        & (dated_comparison_df["Created_DT"] < week_start + pd.Timedelta(days=7))
-    ]
-    prev_week_df = dated_comparison_df[
-        (dated_comparison_df["Created_DT"] >= prev_week_start)
-        & (dated_comparison_df["Created_DT"] < week_start)
-    ]
+    curr_week_df = df[(df[col_date] >= week_start) & (df[col_date] <= ref_date)]
+    prev_week_df = df[(df[col_date] >= prev_week_start) & (df[col_date] <= prev_week_end)]
 
     curr_week_label = f"W{int(week_start.isocalendar().week):02d}"
     prev_week_label = f"W{int(prev_week_start.isocalendar().week):02d}"
@@ -1253,14 +1247,8 @@ with tab_compare:
     prev_month_end = month_start - pd.Timedelta(days=1)
     prev_month_start = prev_month_end.replace(day=1)
 
-    curr_month_df = dated_comparison_df[
-        (dated_comparison_df["Created_DT"] >= month_start)
-        & (dated_comparison_df["Created_DT"] < month_start + pd.offsets.MonthBegin(1))
-    ]
-    prev_month_df = dated_comparison_df[
-        (dated_comparison_df["Created_DT"] >= prev_month_start)
-        & (dated_comparison_df["Created_DT"] < month_start)
-    ]
+    curr_month_df = df[(df[col_date] >= month_start) & (df[col_date] <= ref_date)]
+    prev_month_df = df[(df[col_date] >= prev_month_start) & (df[col_date] <= prev_month_end)]
 
     curr_month_label = month_start.strftime("%b %Y")
     prev_month_label = prev_month_start.strftime("%b %Y")
