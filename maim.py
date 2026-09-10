@@ -1,4 +1,5 @@
 import io
+import textwrap
 from datetime import datetime
 import numpy as np
 import pandas as pd
@@ -478,16 +479,18 @@ def render_comparison_section(data_df):
             change_symbol = "▲" if change >= 0 else "▼"
             change_color = BRAND["green"] if change >= 0 else BRAND["red"]
             cards.append(
-                f"""
-                <div class='comparison-card'>
-                    <div class='comparison-title'>{metric}</div>
-                    <div class='comparison-values'>
-                        <div><span class='comparison-label'>Current</span><strong>{comparison_value(metric, current_value)}</strong></div>
-                        <div><span class='comparison-label'>Previous</span><strong>{comparison_value(metric, previous_value)}</strong></div>
+                textwrap.dedent(
+                    f"""
+                    <div class='comparison-card'>
+                        <div class='comparison-title'>{metric}</div>
+                        <div class='comparison-values'>
+                            <div><span class='comparison-label'>Current</span><strong>{comparison_value(metric, current_value)}</strong></div>
+                            <div><span class='comparison-label'>Previous</span><strong>{comparison_value(metric, previous_value)}</strong></div>
+                        </div>
+                        <div class='comparison-change {change_class}' style='color: {change_color} !important;'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
                     </div>
-                    <div class='comparison-change {change_class}' style='color: {change_color} !important;'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
-                </div>
-                """
+                    """
+                ).strip()
             )
         st.markdown(f"<h3 class='comparison-period'>{comparison_name}</h3>", unsafe_allow_html=True)
         st.markdown("<div class='comparison-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
