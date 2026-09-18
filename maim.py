@@ -455,8 +455,8 @@ def render_comparison_section(data_df):
         "<div class='comparison-legend'>"
         "<span><i class='legend-current'></i>Current period</span>"
         "<span><i class='legend-previous'></i>Previous period</span>"
-        "<span><i class='legend-increase'></i>Increase</span>"
-        "<span><i class='legend-decrease'></i>Decrease</span>"
+        "<span><i class='legend-increase'></i>Improvement (green)</span>"
+        "<span><i class='legend-decrease'></i>Decline (red) — for TAT metrics the colours are reversed: faster is green</span>"
         "</div>",
         unsafe_allow_html=True,
     )
@@ -466,6 +466,7 @@ def render_comparison_section(data_df):
         "TAT: Order to Delivery",
         "TAT: Dispatch to Delivery",
     ]
+    lower_is_better = ("TAT: Order to Delivery", "TAT: Dispatch to Delivery")
     for comparison_name, (current_mask, previous_mask) in periods.items():
         current = comparison_metrics(data_df, current_mask)
         previous = comparison_metrics(data_df, previous_mask)
@@ -475,9 +476,13 @@ def render_comparison_section(data_df):
             previous_value = previous[metric]
             change = current_value - previous_value
             change_pct = (change / previous_value * 100) if previous_value else 0.0
-            change_class = "increase" if change >= 0 else "decrease"
+            if change == 0:
+                change_class, change_color = "", THEME["muted"]
+            else:
+                improved = (change < 0) if metric in lower_is_better else (change > 0)
+                change_class = "increase" if improved else "decrease"
+                change_color = BRAND["green"] if improved else BRAND["red"]
             change_symbol = "▲" if change >= 0 else "▼"
-            change_color = BRAND["green"] if change >= 0 else BRAND["red"]
             cards.append(
                 textwrap.dedent(
                     f"""
@@ -1042,7 +1047,7 @@ with tab_overview:
 
     section_header(
         "Week-on-Week & Month-on-Month Performance",
-        "Green indicates an increase; red indicates a decrease.",
+        "Green indicates improvement, red indicates decline. For TAT metrics the colours are reversed — a decrease in turnaround time is green.",
     )
     render_comparison_section(comparison_base)
 
