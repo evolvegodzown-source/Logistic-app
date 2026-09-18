@@ -512,7 +512,7 @@ def kpi_card(label, value, description, icon="•", accent=None):
 def render_kpis(cards):
     for row_start in range(0, len(cards), 4):
         row = cards[row_start:row_start + 4]
-        cols = st.columns(len(row))
+        cols = st.columns(4)
         for col, card in zip(cols, row):
             label, value, description, icon, accent = card
             with col:
@@ -896,46 +896,404 @@ df["Shipping_TAT"] = df["Shipping_TAT"].apply(
     lambda x: x if pd.notna(x) and x >= 0 else np.nan
 )
 
-# Delivery status check
+# Status mapping strictly tied to the STATUS column
 if col_status and col_status in df.columns:
-    df["Is Delivered"] = df[col_status].astype(str).str.lower().str.strip() == "delivered"
+    df[col_status] = df[col_status].astype(str).str.strip().str.title()
+    DELIVERED_LABELS = {"Delivered", "Complete", "Completed", "Successful"}
+    df["Is Delivered"] = df[col_status].isin(DELIVERED_LABELS)
 else:
-    df["Is Delivered"] = df["Delivery_DT"].notna()
+    df[col_status] = "Unassigned"
+    df["Is Delivered"] = False
 
 # ----------------------------------------------------------------------------
-# EXECUTIVE SUMMARY SECTION / RENDER CARDS
+# SIDEBAR FILTER PANES
 # ----------------------------------------------------------------------------
-# Filtered KPI Cards excluding: "KPI Fulfillment Rate", "Total Order Value", and "Average Order Value"
-exec_cards = [
-    (
-        "Total Orders",
-        fmt_num(len(df)),
-        "Total processed orders",
-        "📦",
-        BRAND["blue"],
-    ),
-    (
-        "Delivered Orders",
-        fmt_num(df["Is Delivered"].sum()),
-        "Successfully fulfilled orders",
-        "✅",
-        BRAND["green"],
-    ),
-    (
-        "Avg Order-to-Delivery TAT",
-        f"{df['Creation_Delivery_TAT'].mean():.1f} hrs" if df["Creation_Delivery_TAT"].notna().any() else "N/A",
-        "Creation to delivery time",
-        "⏱️",
-        BRAND["amber"],
-    ),
-    (
-        "Avg Dispatch-to-Delivery TAT",
-        f"{df['Shipping_TAT'].mean():.1f} hrs" if df["Shipping_TAT"].notna().any() else "N/A",
-        "Transit / shipping duration",
-        "🚚",
-        BRAND["teal"],
-    ),
-]
+st.sidebar.markdown("---")
+st.sidebar.markdown("### 🎛️ Operations Filters")
 
-section_header("Executive Summary Metrics", "Key operational highlights")
-render_kpis(exec_cards)
+month_options = ["All Months"] + sorted(df["Month Label"].dropna().unique().tolist())
+selected_month = st.sidebar.selectbox("Month", month_options)
+
+week_options = ["All Weeks"] + sorted(df["Week Label"].dropna().unique().tolist())
+selected_week = st.sidebar.selectbox("Week", week_options)
+
+region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).unique().tolist())
+selected_region = st.sidebar.selectbox("Region / Hub", region_options)
+
+status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
+selected_status = st.sidebar.selectbox("Delivery Status (STATUS)", status_options)
+
+order_type_options = ["All Order Types"]
+if col_order_type and col_order_type in df.columns:
+    order_type_options += sorted(df[col_order_type].dropna().astype(str).str.strip().unique().tolist())
+selected_order_type = st.sidebar.selectbox("Order Type", order_type_options)
+
+filtered = df.copy()
+if selected_month != "All Months":
+    filtered = filtered[filtered["Month Label"] == selected_month]
+if selected_week != "All Weeks":
+    filtered = filtered[filtered["Week Label"] == selected_week]
+if selected_region != "All Regions":
+    filtered = filtered[filtered[col_region].astype(str) == selected_region]
+if selected_status != "All Statuses":
+    filtered = filtered[filtered[col_status] == selected_status]
+if selected_order_type != "All Order Types" and col_order_type:
+    filtered = filtered[filtered[col_order_type].astype(str).str.strip() == selected_order_type]
+
+comparison_base = df.copy()
+if selected_region != "All Regions":
+    comparison_base = comparison_base[comparison_base[col_region].astype(str) == selected_region]
+if selected_status != "All Statuses":
+    comparison_base = comparison_base[comparison_base[col_status] == selected_status]
+if selected_order_type != "All Order Types" and col_order_type:
+    comparison_base = comparison_base[comparison_base[col_order_type].astype(str).str.strip() == selected_order_type]
+
+# ----------------------------------------------------------------------------
+# HERO HEADER
+# ----------------------------------------------------------------------------
+st.markdown(
+    f"""
+    <div class="hero">
+        <div class="hero-top">
+            <img class="hero-logo" src="{COVER_LOGO_URL}" alt="DrugStoc logo"/>
+            <div>
+                <div class="eyebrow">Healthcare Supply Chain Monitor</div>
+                <div class="hero-title">DrugStoc Pharma Logistics Dashboard</div>
+                <div class="hero-subtitle">
+                    Executive visibility across order fulfillment, delivery turnaround,
+                    shipment volume and field-captain performance.
+                </div>
+                <div class="status-pill">
+                    <span class="status-dot"></span>
+                    Live operational view
+                </div>
+            </div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+tab_overview, tab_captains, tab_data, tab_assets, tab_cost, tab_compare = st.tabs(
+    [
+        "📊 Executive Overview",
+        "🧑‍✈️ Captain Efficiency",
+        "🗂️ Audit Data",
+        "🛠️ Asset Management",
+        "💰 Cost Control",
+        "📈 WoW / MoM Comparison",
+    ]
+)
+
+# ============================================================================
+# TAB 1: EXECUTIVE OVERVIEW
+# ============================================================================
+with tab_overview:
+    total_orders = int(filtered[col_client].count()) if col_client else len(filtered)
+    total_value = filtered[col_value].sum()
+    delivered_count = int(filtered["Is Delivered"].sum())
+    delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
+    avg_creation_to_deliv_tat = filtered["Creation_Delivery_TAT"].mean()
+    avg_shipping_tat = filtered["Shipping_TAT"].mean()
+    total_ctns = filtered[col_qty].sum()
+    avg_order_value = total_value / total_orders if total_orders else 0
+    facilities = filtered[col_client].nunique()
+
+    section_header("Operational KPIs")
+    render_kpis(
+        [
+            (
+                "Total Dispensed Orders",
+                fmt_num(total_orders),
+                "Count of Count Client Name (All records including duplicates).",
+                "📦",
+                BRAND["blue"],
+            ),
+            (
+                "Total Order Value",
+                money(total_value),
+                "Gross order value represented by the filtered records.",
+                "₦",
+                BRAND["green"],
+            ),
+            (
+                "Fulfillment Rate",
+                f"{delivery_pct:.1f}%",
+                f"{delivered_count:,} orders currently marked delivered.",
+                "✓",
+                BRAND["green"],
+            ),
+            (
+                "Active Health Facilities",
+                fmt_num(facilities),
+                "Unique pharmacies, hospitals or facilities served.",
+                "🏥",
+                BRAND["blue"],
+            ),
+            (
+                "Order → Delivery TAT",
+                f"{avg_creation_to_deliv_tat:.1f} hrs" if pd.notna(avg_creation_to_deliv_tat) else "N/A",
+                "Average time from order creation to delivery.",
+                "⏱",
+                BRAND["amber"],
+            ),
+            (
+                "Dispatch → Delivery TAT",
+                f"{avg_shipping_tat:.1f} hrs" if pd.notna(avg_shipping_tat) else "N/A",
+                "Average time from dispatch to successful delivery.",
+                "🚚",
+                BRAND["amber"],
+            ),
+            (
+                "Total Volume Shipped",
+                f"{total_ctns:,.0f} CTN",
+                "Total cartons recorded across filtered orders.",
+                "📦",
+                BRAND["blue"],
+            ),
+            (
+                "Average Order Value",
+                money(avg_order_value),
+                "Average monetary value per order.",
+                "₦",
+                BRAND["green"],
+            ),
+        ]
+    )
+
+    section_header(
+        "Week-on-Week & Month-on-Month Performance",
+        "Green indicates an increase; red indicates a decrease.",
+    )
+    render_comparison_section(comparison_base)
+
+    section_header("Performance Trend", "Track fulfillment and delivery turnaround over time.")
+    render_performance_trend(filtered)
+
+    section_header("Network Performance")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        reg_summary = (
+            filtered.groupby(col_region, dropna=False)[col_client]
+            .count()
+            .reset_index(name="Orders")
+            .sort_values("Orders", ascending=False)
+        )
+        reg_summary[col_region] = reg_summary[col_region].fillna("Unassigned").astype(str)
+        if reg_summary.empty:
+            show_empty_chart("No regional data is available.")
+        else:
+            fig = px.bar(
+                reg_summary,
+                x="Orders",
+                y=col_region,
+                orientation="h",
+                text="Orders",
+                title="Orders by Region / Hub",
+                color_discrete_sequence=[BRAND["blue"]],
+            )
+            fig.update_traces(textposition="outside", cliponaxis=False)
+            fig.update_layout(
+                showlegend=False,
+                height=max(360, min(650, 80 + len(reg_summary) * 36)),
+                xaxis_title="Orders",
+                yaxis_title=None,
+            )
+            st.plotly_chart(plotly_theme(fig), use_container_width=True)
+
+    with col_b:
+        status_summary = filtered[col_status].fillna("Unknown").astype(str).value_counts().reset_index()
+        status_summary.columns = ["Status", "Orders"]
+        if status_summary.empty:
+            show_empty_chart("No status data available.")
+        else:
+            fig = px.pie(
+                status_summary,
+                names="Status",
+                values="Orders",
+                hole=0.56,
+                title="Fulfillment Status Mix (STATUS)",
+                color_discrete_sequence=[
+                    BRAND["green"],
+                    BRAND["blue"],
+                    BRAND["amber"],
+                    BRAND["red"],
+                    "#8B5CF6",
+                ],
+            )
+            st.plotly_chart(plotly_theme(fig), use_container_width=True)
+
+# ============================================================================
+# TAB 2: CAPTAIN PERFORMANCE
+# ============================================================================
+with tab_captains:
+    section_header("Rider & Captain Turnaround Performance")
+    if not col_captain:
+        st.info("No Captain field found in the dataset.")
+    else:
+        cap_df = filtered.dropna(subset=[col_captain]).copy()
+        cap_df = cap_df[cap_df[col_captain].astype(str).str.strip() != ""]
+        if cap_df.empty:
+            st.info("No captain performance records available.")
+        else:
+            cap_summary = (
+                cap_df.groupby(col_captain, dropna=False)
+                .agg(
+                    Total_Orders=(col_client, "count"),
+                    Creation_to_Delivery_TAT=("Creation_Delivery_TAT", "mean"),
+                    Shipping_TAT=("Shipping_TAT", "mean"),
+                    Delivery_Rate=("Is Delivered", "mean"),
+                )
+                .reset_index()
+            )
+            cap_summary["Delivery_Rate"] = cap_summary["Delivery_Rate"].fillna(0) * 100
+            display_cap = cap_summary.rename(
+                columns={
+                    col_captain: "Captain",
+                    "Total_Orders": "Dispatches",
+                    "Creation_to_Delivery_TAT": "Avg Creation→Delivery TAT (hrs)",
+                    "Shipping_TAT": "Avg Shipping TAT (hrs)",
+                    "Delivery_Rate": "Success Rate (%)",
+                }
+            )
+            st.dataframe(
+                display_cap.sort_values(["Success Rate (%)", "Dispatches"], ascending=[False, False]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+# ============================================================================
+# TAB 3: AUDIT DATA
+# ============================================================================
+with tab_data:
+    section_header("Filtered Audit Logs", f"{len(filtered):,} records shown from {len(df):,} total records.")
+    st.dataframe(filtered, use_container_width=True, hide_index=True, height=600)
+    csv = filtered.to_csv(index=False).encode("utf-8")
+    st.download_button(
+        "⬇️ Download Filtered Audit CSV",
+        data=csv,
+        file_name="drugstoc_filtered_logistics_audit.csv",
+        mime="text/csv",
+    )
+
+# ============================================================================
+# TAB 4: ASSET MANAGEMENT
+# ============================================================================
+with tab_assets:
+    st.subheader("🛠️ Asset Management")
+    st.markdown(
+        "Track and manage logistics assets — vehicles, cold-chain equipment, "
+        "and pharmaceutical handling tools tied to distribution operations."
+    )
+
+    a1, a2, a3 = st.columns(3)
+    a1.metric("Active Fleet Units", "—")
+    a2.metric("Cold-Chain Assets", "—")
+    a3.metric("Assets Due for Service", "—")
+
+    st.info(
+        "Asset registry integration is pending. Connect this module to your "
+        "asset database to monitor utilization, maintenance schedules, and lifecycle status."
+    )
+
+# ============================================================================
+# TAB 5: COST CONTROL
+# ============================================================================
+with tab_cost:
+    st.subheader("💰 Cost Control")
+    st.markdown(
+        "Monitor logistics spend, cost per delivery, fuel efficiency, and "
+        "operational budget variance across regions and order types."
+    )
+
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Cost Per Delivery", "₦—")
+    c2.metric("Fuel & Logistics Budget", "₦—")
+    c3.metric("Budget Variance", "—%")
+
+    st.info(
+        "Cost data integration is pending. Link this module to your finance/ERP "
+        "system to unlock cost-per-route, fuel trend analysis, and budget tracking."
+    )
+
+# ============================================================================
+# TAB 6: WoW / MoM KPI COMPARISON
+# ============================================================================
+with tab_compare:
+    section_header(
+        "Week-on-Week & Month-on-Month Performance",
+        "Pie-chart share comparison across the 4 core operational KPIs",
+    )
+
+    # Reference date = latest available order date in the dataset
+    if col_date and col_date in df.columns and df[col_date].notna().any():
+        ref_date = df[col_date].max()
+    else:
+        ref_date = pd.Timestamp.today()
+
+    # ------------------------- WEEK BOUNDARIES -------------------------
+    week_start = ref_date - pd.Timedelta(days=int(ref_date.weekday()))
+    prev_week_start = week_start - pd.Timedelta(days=7)
+    prev_week_end = week_start - pd.Timedelta(days=1)
+
+    curr_week_df = df[(df[col_date] >= week_start) & (df[col_date] <= ref_date)]
+    prev_week_df = df[(df[col_date] >= prev_week_start) & (df[col_date] <= prev_week_end)]
+
+    curr_week_label = f"W{int(week_start.isocalendar().week):02d}"
+    prev_week_label = f"W{int(prev_week_start.isocalendar().week):02d}"
+
+    # ------------------------- MONTH BOUNDARIES ------------------------
+    month_start = ref_date.replace(day=1)
+    prev_month_end = month_start - pd.Timedelta(days=1)
+    prev_month_start = prev_month_end.replace(day=1)
+
+    curr_month_df = df[(df[col_date] >= month_start) & (df[col_date] <= ref_date)]
+    prev_month_df = df[(df[col_date] >= prev_month_start) & (df[col_date] <= prev_month_end)]
+
+    curr_month_label = month_start.strftime("%b %Y")
+    prev_month_label = prev_month_start.strftime("%b %Y")
+
+    # --------------------------- WEEK-ON-WEEK --------------------------
+    st.markdown(
+        f"**📅 Week-on-Week** — {curr_week_label} vs {prev_week_label} &nbsp;|&nbsp; "
+        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
+        f"{week_start:%d %b} – {ref_date:%d %b %Y} vs {prev_week_start:%d %b} – {prev_week_end:%d %b %Y}</span>",
+        unsafe_allow_html=True,
+    )
+    wow_curr = compute_period_kpis(curr_week_df)
+    wow_prev = compute_period_kpis(prev_week_df)
+
+    wow_cols = st.columns(4)
+    for col, kpi in zip(wow_cols, COMPARE_KPIS):
+        with col:
+            st.plotly_chart(
+                comparison_pie(kpi, wow_curr[kpi], wow_prev[kpi], curr_week_label, prev_week_label),
+                use_container_width=True,
+            )
+
+    st.markdown("---")
+
+    # -------------------------- MONTH-ON-MONTH -------------------------
+    st.markdown(
+        f"**🗓️ Month-on-Month** — {curr_month_label} vs {prev_month_label} &nbsp;|&nbsp; "
+        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
+        f"{month_start:%d %b} – {ref_date:%d %b %Y} vs {prev_month_start:%d %b} – {prev_month_end:%d %b %Y}</span>",
+        unsafe_allow_html=True,
+    )
+    mom_curr = compute_period_kpis(curr_month_df)
+    mom_prev = compute_period_kpis(prev_month_df)
+
+    mom_cols = st.columns(4)
+    for col, kpi in zip(mom_cols, COMPARE_KPIS):
+        with col:
+            st.plotly_chart(
+                comparison_pie(kpi, mom_curr[kpi], mom_prev[kpi], curr_month_label, prev_month_label),
+                use_container_width=True,
+            )
+
+    st.markdown("---")
+    st.caption(
+        "ℹ️ Slice size represents each period's share of the combined total. "
+        "TAT deltas are colour-coded green when turnaround improves (decreases). "
+        "Comparison uses the full dataset, ignoring the sidebar filters."
+    )
