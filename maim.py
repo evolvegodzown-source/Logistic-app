@@ -1010,20 +1010,6 @@ with tab_overview:
                 BRAND["blue"],
             ),
             (
-                "Total Order Value",
-                money(total_value),
-                "Gross order value represented by the filtered records.",
-                "₦",
-                BRAND["green"],
-            ),
-            (
-                "Fulfillment Rate",
-                f"{delivery_pct:.1f}%",
-                f"{delivered_count:,} orders currently marked delivered.",
-                "✓",
-                BRAND["green"],
-            ),
-            (
                 "Active Health Facilities",
                 fmt_num(facilities),
                 "Unique pharmacies, hospitals or facilities served.",
@@ -1050,13 +1036,6 @@ with tab_overview:
                 "Total cartons recorded across filtered orders.",
                 "📦",
                 BRAND["blue"],
-            ),
-            (
-                "Average Order Value",
-                money(avg_order_value),
-                "Average monetary value per order.",
-                "₦",
-                BRAND["green"],
             ),
         ]
     )
