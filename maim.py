@@ -803,7 +803,11 @@ def load_data(path=DATA_PATH):
 
     all_sheets = pd.read_excel(source, sheet_name=None)
     combined_df = pd.concat(all_sheets.values(), ignore_index=True)
-    return combined_df
+    fuel_sheet = next(
+        (s for n, s in all_sheets.items() if str(n).strip().lower() == "fuel"),
+        None,
+    )
+    return combined_df, fuel_sheet
 
 # ----------------------------------------------------------------------------
 # SIDEBAR HEADER & REFRESH BUTTON
@@ -826,7 +830,7 @@ if st.sidebar.button("🔄 Refresh Data"):
 # DATA PROCESSING
 # ----------------------------------------------------------------------------
 try:
-    df_raw = load_data(DATA_PATH)
+    df_raw, fuel_raw = load_data(DATA_PATH)
 except Exception as exc:
     st.error("Unable to load the logistics workbook.")
     st.info("Verify the live link contains valid Excel tables.")
@@ -912,6 +916,32 @@ else:
     df["Is Delivered"] = False
 
 # ----------------------------------------------------------------------------
+# FUEL SHEET PROCESSING (Fueling Cost tab)
+# ----------------------------------------------------------------------------
+fuel = None
+if fuel_raw is not None and not fuel_raw.empty:
+    fuel = fuel_raw.copy()
+    fuel.columns = [str(c).strip() for c in fuel.columns]
+    col_fuel_date = find_col(fuel, ["DATE", "Date", "Fueling Date"])
+    # NOTE: the sheet column is labelled "Fueling/Ltr" but the values are
+    # fueling spend in naira (e.g. 40000), not litres.
+    col_fuel_cost = find_col(fuel, ["Fueling/Ltr", "Fueling", "Fueling Cost", "Amount", "Cost"])
+    col_fuel_captain = find_col(fuel, ["Captains Name", "Captain", "Captain Name", "Rider"])
+    col_fuel_plate = find_col(fuel, ["PlateNumber", "Plate Number", "Plate No", "Vehicle Plate No"])
+    col_fuel_model = find_col(fuel, ["Model", "Vehicle Model"])
+
+    if col_fuel_date and col_fuel_date in fuel.columns:
+        fuel[col_fuel_date] = pd.to_datetime(fuel[col_fuel_date], errors="coerce")
+        fuel["Fuel Month Label"] = fuel[col_fuel_date].dt.strftime("%B %Y").fillna("Unassigned Date")
+        fuel["Fuel Year"] = fuel[col_fuel_date].dt.year
+        fuel["Fuel Week"] = fuel[col_fuel_date].dt.isocalendar().week.astype(int)
+        fuel["Fuel Week Label"] = (
+            "W" + fuel["Fuel Week"].astype(str).str.zfill(2) + " - " + fuel["Fuel Year"].astype(str)
+        )
+    if col_fuel_cost and col_fuel_cost in fuel.columns:
+        fuel[col_fuel_cost] = pd.to_numeric(fuel[col_fuel_cost], errors="coerce")
+
+# ----------------------------------------------------------------------------
 # SIDEBAR FILTER PANES
 # ----------------------------------------------------------------------------
 st.sidebar.markdown("---")
@@ -980,15 +1010,16 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab_overview, tab_captains, tab_vehicles, tab_data, tab_assets, tab_cost, tab_compare = st.tabs(
+tab_overview, tab_compare, tab_vehicles, tab_fuel, tab_captains, tab_data, tab_assets, tab_cost = st.tabs(
     [
         "📊 Executive Overview",
-        "🧑‍✈️ Captain Efficiency",
+        "📈 WoW / MoM Comparison",
         "🚛 Vehicles & Order Count",
+        "⛽ Fueling Cost",
+        "🧑‍✈️ Captain Efficiency",
         "🗂️ Audit Data",
         "🛠️ Asset Management",
         "💰 Cost Control",
-        "📈 WoW / MoM Comparison",
     ]
 )
 
@@ -1117,43 +1148,86 @@ with tab_overview:
             st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
 # ============================================================================
-# TAB 2: CAPTAIN PERFORMANCE
+# TAB 2: WoW / MoM KPI COMPARISON
 # ============================================================================
-with tab_captains:
-    section_header("Rider & Captain Turnaround Performance")
-    if not col_captain:
-        st.info("No Captain field found in the dataset.")
+with tab_compare:
+    section_header(
+        "Week-on-Week & Month-on-Month Performance",
+        "Pie-chart share comparison across the 4 core operational KPIs",
+    )
+
+    # Reference date = latest available order date in the dataset
+    if col_date and col_date in df.columns and df[col_date].notna().any():
+        ref_date = df[col_date].max()
     else:
-        cap_df = filtered.dropna(subset=[col_captain]).copy()
-        cap_df = cap_df[cap_df[col_captain].astype(str).str.strip() != ""]
-        if cap_df.empty:
-            st.info("No captain performance records available.")
-        else:
-            cap_summary = (
-                cap_df.groupby(col_captain, dropna=False)
-                .agg(
-                    Total_Orders=(col_client, "count"),
-                    Creation_to_Delivery_TAT=("Creation_Delivery_TAT", "mean"),
-                    Shipping_TAT=("Shipping_TAT", "mean"),
-                    Delivery_Rate=("Is Delivered", "mean"),
-                )
-                .reset_index()
-            )
-            cap_summary["Delivery_Rate"] = cap_summary["Delivery_Rate"].fillna(0) * 100
-            display_cap = cap_summary.rename(
-                columns={
-                    col_captain: "Captain",
-                    "Total_Orders": "Dispatches",
-                    "Creation_to_Delivery_TAT": "Avg Creation→Delivery TAT (hrs)",
-                    "Shipping_TAT": "Avg Shipping TAT (hrs)",
-                    "Delivery_Rate": "Success Rate (%)",
-                }
-            )
-            st.dataframe(
-                display_cap.sort_values(["Success Rate (%)", "Dispatches"], ascending=[False, False]),
+        ref_date = pd.Timestamp.today()
+
+    # ------------------------- WEEK BOUNDARIES -------------------------
+    week_start = ref_date - pd.Timedelta(days=int(ref_date.weekday()))
+    prev_week_start = week_start - pd.Timedelta(days=7)
+    prev_week_end = week_start - pd.Timedelta(days=1)
+
+    curr_week_df = df[(df[col_date] >= week_start) & (df[col_date] <= ref_date)]
+    prev_week_df = df[(df[col_date] >= prev_week_start) & (df[col_date] <= prev_week_end)]
+
+    curr_week_label = f"W{int(week_start.isocalendar().week):02d}"
+    prev_week_label = f"W{int(prev_week_start.isocalendar().week):02d}"
+
+    # ------------------------- MONTH BOUNDARIES ------------------------
+    month_start = ref_date.replace(day=1)
+    prev_month_end = month_start - pd.Timedelta(days=1)
+    prev_month_start = prev_month_end.replace(day=1)
+
+    curr_month_df = df[(df[col_date] >= month_start) & (df[col_date] <= ref_date)]
+    prev_month_df = df[(df[col_date] >= prev_month_start) & (df[col_date] <= prev_month_end)]
+
+    curr_month_label = month_start.strftime("%b %Y")
+    prev_month_label = prev_month_start.strftime("%b %Y")
+
+    # --------------------------- WEEK-ON-WEEK --------------------------
+    st.markdown(
+        f"**📅 Week-on-Week** — {curr_week_label} vs {prev_week_label} &nbsp;|&nbsp; "
+        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
+        f"{week_start:%d %b} – {ref_date:%d %b %Y} vs {prev_week_start:%d %b} – {prev_week_end:%d %b %Y}</span>",
+        unsafe_allow_html=True,
+    )
+    wow_curr = compute_period_kpis(curr_week_df)
+    wow_prev = compute_period_kpis(prev_week_df)
+
+    wow_cols = st.columns(4)
+    for col, kpi in zip(wow_cols, COMPARE_KPIS):
+        with col:
+            st.plotly_chart(
+                comparison_pie(kpi, wow_curr[kpi], wow_prev[kpi], curr_week_label, prev_week_label),
                 use_container_width=True,
-                hide_index=True,
             )
+
+    st.markdown("---")
+
+    # -------------------------- MONTH-ON-MONTH -------------------------
+    st.markdown(
+        f"**🗓️ Month-on-Month** — {curr_month_label} vs {prev_month_label} &nbsp;|&nbsp; "
+        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
+        f"{month_start:%d %b} – {ref_date:%d %b %Y} vs {prev_month_start:%d %b} – {prev_month_end:%d %b %Y}</span>",
+        unsafe_allow_html=True,
+    )
+    mom_curr = compute_period_kpis(curr_month_df)
+    mom_prev = compute_period_kpis(prev_month_df)
+
+    mom_cols = st.columns(4)
+    for col, kpi in zip(mom_cols, COMPARE_KPIS):
+        with col:
+            st.plotly_chart(
+                comparison_pie(kpi, mom_curr[kpi], mom_prev[kpi], curr_month_label, prev_month_label),
+                use_container_width=True,
+            )
+
+    st.markdown("---")
+    st.caption(
+        "ℹ️ Slice size represents each period's share of the combined total. "
+        "TAT deltas are colour-coded green when turnaround improves (decreases). "
+        "Comparison uses the full dataset, ignoring the sidebar filters."
+    )
 
 # ============================================================================
 # TAB 3: VEHICLES & ORDER COUNT
@@ -1254,7 +1328,155 @@ with tab_vehicles:
             )
 
 # ============================================================================
-# TAB 4: AUDIT DATA
+# TAB 4: FUELING COST
+# ============================================================================
+with tab_fuel:
+    section_header(
+        "Fueling Cost",
+        "Fuel spend picked from the Fuel tab of the logistics_DB workbook.",
+    )
+
+    if fuel is None or fuel.empty:
+        st.info("No Fuel sheet found in the logistics workbook.")
+    elif not col_fuel_cost:
+        st.info("No fueling cost column (e.g. 'Fueling/Ltr') found in the Fuel sheet.")
+    else:
+        # Respect the sidebar Month / Week picks (fuel rows carry their own DATE)
+        fuel_view = fuel.copy()
+        if selected_month != "All Months" and "Fuel Month Label" in fuel_view.columns:
+            fuel_view = fuel_view[fuel_view["Fuel Month Label"] == selected_month]
+        if selected_week != "All Weeks" and "Fuel Week Label" in fuel_view.columns:
+            fuel_view = fuel_view[fuel_view["Fuel Week Label"] == selected_week]
+
+        total_fuel_cost = fuel_view[col_fuel_cost].sum()
+        fuel_events = int(fuel_view[col_fuel_cost].notna().sum())
+        total_deliveries = int(filtered["Is Delivered"].sum())
+        avg_cost_per_delivery = total_fuel_cost / total_deliveries if total_deliveries else 0
+
+        section_header("Fueling KPIs")
+        render_kpis(
+            [
+                (
+                    "Total Fueling Cost",
+                    money(total_fuel_cost),
+                    "Sum of fuel spend recorded in the Fuel tab (filtered view).",
+                    "⛽",
+                    BRAND["green"],
+                ),
+                (
+                    "Total Deliveries",
+                    fmt_num(total_deliveries),
+                    "Delivered orders in the filtered logistics view.",
+                    "📦",
+                    BRAND["blue"],
+                ),
+                (
+                    "Fueling Events",
+                    fmt_num(fuel_events),
+                    "Number of fueling records logged in the Fuel tab.",
+                    "🧾",
+                    BRAND["amber"],
+                ),
+                (
+                    "Avg Cost / Delivery",
+                    money(avg_cost_per_delivery),
+                    "Total fueling cost divided by total deliveries.",
+                    "💸",
+                    BRAND["teal"],
+                ),
+            ]
+        )
+
+        if col_fuel_date and fuel_view[col_fuel_date].notna().any():
+            trend = (
+                fuel_view.dropna(subset=[col_fuel_date])
+                .assign(_month=lambda x: x[col_fuel_date].dt.to_period("M"))
+                .groupby("_month", dropna=False)[col_fuel_cost]
+                .sum()
+                .reset_index()
+                .sort_values("_month")
+            )
+            trend["Month"] = trend["_month"].dt.strftime("%b %Y")
+            fig = px.bar(
+                trend,
+                x="Month",
+                y=col_fuel_cost,
+                text=col_fuel_cost,
+                title="Monthly Fueling Spend",
+                color_discrete_sequence=[BRAND["green"]],
+                labels={col_fuel_cost: "Fueling Cost (₦)"},
+            )
+            fig.update_traces(textposition="outside", cliponaxis=False)
+            fig.update_layout(showlegend=False, height=380, yaxis_title=None)
+            st.plotly_chart(plotly_theme(fig), use_container_width=True)
+
+        section_header("Fueling Records", f"{len(fuel_view):,} records from the Fuel tab.")
+        table_cols = [
+            c
+            for c in [
+                col_fuel_date,
+                col_fuel_captain,
+                col_fuel_plate,
+                col_fuel_model,
+                col_fuel_cost,
+                "Fuel Week Label",
+            ]
+            if c and c in fuel_view.columns
+        ]
+        display_fuel = fuel_view[table_cols]
+        if col_fuel_date and col_fuel_date in display_fuel.columns:
+            display_fuel = display_fuel.sort_values(col_fuel_date, ascending=False)
+        st.dataframe(display_fuel, use_container_width=True, hide_index=True, height=500)
+
+        csv_fuel = fuel_view.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Download Fuel Data CSV",
+            data=csv_fuel,
+            file_name="drugstoc_fuel_data.csv",
+            mime="text/csv",
+        )
+
+# ============================================================================
+# TAB 5: CAPTAIN PERFORMANCE
+# ============================================================================
+with tab_captains:
+    section_header("Rider & Captain Turnaround Performance")
+    if not col_captain:
+        st.info("No Captain field found in the dataset.")
+    else:
+        cap_df = filtered.dropna(subset=[col_captain]).copy()
+        cap_df = cap_df[cap_df[col_captain].astype(str).str.strip() != ""]
+        if cap_df.empty:
+            st.info("No captain performance records available.")
+        else:
+            cap_summary = (
+                cap_df.groupby(col_captain, dropna=False)
+                .agg(
+                    Total_Orders=(col_client, "count"),
+                    Creation_to_Delivery_TAT=("Creation_Delivery_TAT", "mean"),
+                    Shipping_TAT=("Shipping_TAT", "mean"),
+                    Delivery_Rate=("Is Delivered", "mean"),
+                )
+                .reset_index()
+            )
+            cap_summary["Delivery_Rate"] = cap_summary["Delivery_Rate"].fillna(0) * 100
+            display_cap = cap_summary.rename(
+                columns={
+                    col_captain: "Captain",
+                    "Total_Orders": "Dispatches",
+                    "Creation_to_Delivery_TAT": "Avg Creation→Delivery TAT (hrs)",
+                    "Shipping_TAT": "Avg Shipping TAT (hrs)",
+                    "Delivery_Rate": "Success Rate (%)",
+                }
+            )
+            st.dataframe(
+                display_cap.sort_values(["Success Rate (%)", "Dispatches"], ascending=[False, False]),
+                use_container_width=True,
+                hide_index=True,
+            )
+
+# ============================================================================
+# TAB 6: AUDIT DATA
 # ============================================================================
 with tab_data:
     section_header("Filtered Audit Logs", f"{len(filtered):,} records shown from {len(df):,} total records.")
@@ -1268,7 +1490,7 @@ with tab_data:
     )
 
 # ============================================================================
-# TAB 5: ASSET MANAGEMENT
+# TAB 7: ASSET MANAGEMENT
 # ============================================================================
 with tab_assets:
     st.subheader("🛠️ Asset Management")
@@ -1288,7 +1510,7 @@ with tab_assets:
     )
 
 # ============================================================================
-# TAB 6: COST CONTROL
+# TAB 8: COST CONTROL
 # ============================================================================
 with tab_cost:
     st.subheader("💰 Cost Control")
@@ -1305,86 +1527,4 @@ with tab_cost:
     st.info(
         "Cost data integration is pending. Link this module to your finance/ERP "
         "system to unlock cost-per-route, fuel trend analysis, and budget tracking."
-    )
-
-# ============================================================================
-# TAB 7: WoW / MoM KPI COMPARISON
-# ============================================================================
-with tab_compare:
-    section_header(
-        "Week-on-Week & Month-on-Month Performance",
-        "Pie-chart share comparison across the 4 core operational KPIs",
-    )
-
-    # Reference date = latest available order date in the dataset
-    if col_date and col_date in df.columns and df[col_date].notna().any():
-        ref_date = df[col_date].max()
-    else:
-        ref_date = pd.Timestamp.today()
-
-    # ------------------------- WEEK BOUNDARIES -------------------------
-    week_start = ref_date - pd.Timedelta(days=int(ref_date.weekday()))
-    prev_week_start = week_start - pd.Timedelta(days=7)
-    prev_week_end = week_start - pd.Timedelta(days=1)
-
-    curr_week_df = df[(df[col_date] >= week_start) & (df[col_date] <= ref_date)]
-    prev_week_df = df[(df[col_date] >= prev_week_start) & (df[col_date] <= prev_week_end)]
-
-    curr_week_label = f"W{int(week_start.isocalendar().week):02d}"
-    prev_week_label = f"W{int(prev_week_start.isocalendar().week):02d}"
-
-    # ------------------------- MONTH BOUNDARIES ------------------------
-    month_start = ref_date.replace(day=1)
-    prev_month_end = month_start - pd.Timedelta(days=1)
-    prev_month_start = prev_month_end.replace(day=1)
-
-    curr_month_df = df[(df[col_date] >= month_start) & (df[col_date] <= ref_date)]
-    prev_month_df = df[(df[col_date] >= prev_month_start) & (df[col_date] <= prev_month_end)]
-
-    curr_month_label = month_start.strftime("%b %Y")
-    prev_month_label = prev_month_start.strftime("%b %Y")
-
-    # --------------------------- WEEK-ON-WEEK --------------------------
-    st.markdown(
-        f"**📅 Week-on-Week** — {curr_week_label} vs {prev_week_label} &nbsp;|&nbsp; "
-        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
-        f"{week_start:%d %b} – {ref_date:%d %b %Y} vs {prev_week_start:%d %b} – {prev_week_end:%d %b %Y}</span>",
-        unsafe_allow_html=True,
-    )
-    wow_curr = compute_period_kpis(curr_week_df)
-    wow_prev = compute_period_kpis(prev_week_df)
-
-    wow_cols = st.columns(4)
-    for col, kpi in zip(wow_cols, COMPARE_KPIS):
-        with col:
-            st.plotly_chart(
-                comparison_pie(kpi, wow_curr[kpi], wow_prev[kpi], curr_week_label, prev_week_label),
-                use_container_width=True,
-            )
-
-    st.markdown("---")
-
-    # -------------------------- MONTH-ON-MONTH -------------------------
-    st.markdown(
-        f"**🗓️ Month-on-Month** — {curr_month_label} vs {prev_month_label} &nbsp;|&nbsp; "
-        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
-        f"{month_start:%d %b} – {ref_date:%d %b %Y} vs {prev_month_start:%d %b} – {prev_month_end:%d %b %Y}</span>",
-        unsafe_allow_html=True,
-    )
-    mom_curr = compute_period_kpis(curr_month_df)
-    mom_prev = compute_period_kpis(prev_month_df)
-
-    mom_cols = st.columns(4)
-    for col, kpi in zip(mom_cols, COMPARE_KPIS):
-        with col:
-            st.plotly_chart(
-                comparison_pie(kpi, mom_curr[kpi], mom_prev[kpi], curr_month_label, prev_month_label),
-                use_container_width=True,
-            )
-
-    st.markdown("---")
-    st.caption(
-        "ℹ️ Slice size represents each period's share of the combined total. "
-        "TAT deltas are colour-coded green when turnaround improves (decreases). "
-        "Comparison uses the full dataset, ignoring the sidebar filters."
     )
