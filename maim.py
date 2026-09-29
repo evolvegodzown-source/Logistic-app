@@ -1015,6 +1015,13 @@ with tab_overview:
                 BRAND["blue"],
             ),
             (
+                "Total Order Value",
+                money(total_value),
+                "Sum of Order Value across all filtered orders.",
+                "💰",
+                BRAND["green"],
+            ),
+            (
                 "Active Health Facilities",
                 fmt_num(facilities),
                 "Unique pharmacies, hospitals or facilities served.",
