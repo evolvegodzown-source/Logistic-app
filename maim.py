@@ -34,19 +34,19 @@ BRAND = {
 }
 
 # ----------------------------------------------------------------------------
-# THEME (PERMANENT DARK MODE)
+# THEME (PERMANENT LIGHT MODE)
 # ----------------------------------------------------------------------------
-DARK = True
+DARK = False
 THEME = {
-    "page": "#071421",
-    "surface": "#0E2236",
-    "surface_2": "#132B42",
-    "text": "#F4F8FC",
-    "muted": "#A9BCD0",
-    "border": "rgba(255,255,255,.10)",
-    "grid": "rgba(255,255,255,.10)",
-    "plot_bg": "#0E2236",
-    "accent_soft": "rgba(22,134,217,.18)",
+    "page": "#FFFFFF",
+    "surface": "#FFFFFF",
+    "surface_2": "#EAF1F7",
+    "text": "#0F2333",
+    "muted": "#4A6178",
+    "border": "rgba(15,35,51,.12)",
+    "grid": "rgba(15,35,51,.10)",
+    "plot_bg": "#FFFFFF",
+    "accent_soft": "rgba(22,134,217,.12)",
 }
 
 st.markdown(
@@ -67,8 +67,8 @@ st.markdown(
         }}
         .stApp {{
             background:
-                radial-gradient(circle at 10% 0%, rgba(22,134,217,.10), transparent 28%),
-                radial-gradient(circle at 90% 0%, rgba(16,185,129,.08), transparent 25%),
+                radial-gradient(circle at 10% 0%, rgba(22,134,217,.06), transparent 28%),
+                radial-gradient(circle at 90% 0%, rgba(16,185,129,.05), transparent 25%),
                 var(--ds-page);
             color: var(--ds-text);
         }}
@@ -103,16 +103,16 @@ st.markdown(
             color: var(--ds-muted) !important;
         }}
         section[data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, #06182A 0%, #0A2339 100%) !important;
-            border-right: 1px solid rgba(255,255,255,.08);
+            background: linear-gradient(180deg, #F3F8FC 0%, #E9F1F8 100%) !important;
+            border-right: 1px solid rgba(15,35,51,.10);
         }}
         section[data-testid="stSidebar"] * {{
-            color: #F1F7FC !important;
+            color: #0F2333 !important;
         }}
         section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
         section[data-testid="stSidebar"] .stButton button {{
-            background: rgba(255,255,255,.08) !important;
-            border: 1px solid rgba(255,255,255,.14) !important;
+            background: #FFFFFF !important;
+            border: 1px solid rgba(15,35,51,.14) !important;
             border-radius: 10px !important;
         }}
         section[data-testid="stSidebar"] .stButton button {{
@@ -121,12 +121,12 @@ st.markdown(
         }}
         section[data-testid="stSidebar"] .stButton button:hover {{
             border-color: var(--ds-blue) !important;
-            background: rgba(22,134,217,.18) !important;
+            background: rgba(22,134,217,.10) !important;
         }}
         .sidebar-brand {{
             padding: 6px 0 18px 0;
             text-align: center;
-            border-bottom: 1px solid rgba(255,255,255,.12);
+            border-bottom: 1px solid rgba(15,35,51,.12);
             margin-bottom: 16px;
         }}
         .sidebar-brand img {{
@@ -139,7 +139,7 @@ st.markdown(
             font-size: .76rem;
             font-weight: 800;
             letter-spacing: .14em;
-            color: #B9D7EE;
+            color: #0B5FA5;
             text-transform: uppercase;
         }}
         .hero {{
@@ -534,7 +534,7 @@ def render_kpis(cards):
 
 def plotly_theme(fig):
     fig.update_layout(
-        template="plotly_dark",
+        template="plotly_white",
         paper_bgcolor=THEME["plot_bg"],
         plot_bgcolor=THEME["plot_bg"],
         font=dict(color=THEME["text"]),
