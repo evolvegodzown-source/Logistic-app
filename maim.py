@@ -103,16 +103,16 @@ st.markdown(
             color: var(--ds-muted) !important;
         }}
         section[data-testid="stSidebar"] {{
-            background: linear-gradient(180deg, #F3F8FC 0%, #E9F1F8 100%) !important;
-            border-right: 1px solid rgba(15,35,51,.10);
+            background: linear-gradient(180deg, #06182A 0%, #0A2339 100%) !important;
+            border-right: 1px solid rgba(255,255,255,.08);
         }}
         section[data-testid="stSidebar"] * {{
-            color: #0F2333 !important;
+            color: #F1F7FC !important;
         }}
         section[data-testid="stSidebar"] .stSelectbox div[data-baseweb="select"] > div,
         section[data-testid="stSidebar"] .stButton button {{
-            background: #FFFFFF !important;
-            border: 1px solid rgba(15,35,51,.14) !important;
+            background: rgba(255,255,255,.08) !important;
+            border: 1px solid rgba(255,255,255,.14) !important;
             border-radius: 10px !important;
         }}
         section[data-testid="stSidebar"] .stButton button {{
@@ -121,12 +121,12 @@ st.markdown(
         }}
         section[data-testid="stSidebar"] .stButton button:hover {{
             border-color: var(--ds-blue) !important;
-            background: rgba(22,134,217,.10) !important;
+            background: rgba(22,134,217,.18) !important;
         }}
         .sidebar-brand {{
             padding: 6px 0 18px 0;
             text-align: center;
-            border-bottom: 1px solid rgba(15,35,51,.12);
+            border-bottom: 1px solid rgba(255,255,255,.12);
             margin-bottom: 16px;
         }}
         .sidebar-brand img {{
@@ -139,7 +139,7 @@ st.markdown(
             font-size: .76rem;
             font-weight: 800;
             letter-spacing: .14em;
-            color: #0B5FA5;
+            color: #B9D7EE;
             text-transform: uppercase;
         }}
         .hero {{
