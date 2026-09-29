@@ -847,6 +847,7 @@ col_create_time = find_col(df_raw, ["Created Time", "Creation Time", "Order Time
 col_region = find_col(df_raw, ["Region", "Zone", "State", "Territory"])
 col_status = find_col(df_raw, ["STATUS"], exact_caps_only=True) or find_col(df_raw, ["STATUS"])
 col_captain = find_col(df_raw, ["Captain", "Rider", "Driver", "Captain Name"])
+col_vehicle = find_col(df_raw, ["Vehicle Plate No", "Plate Number", "Plate No", "Vehicle", "Vehicle Reg No", "Reg No", "Truck No", "Van Number", "Vehicle No"])
 col_order_type = find_col(df_raw, ["Order Type", "Type", "Category"])
 col_ship = find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"])
 col_dispatch_time = find_col(df_raw, ["Dispatch Time", "Ship Time", "Time Dispatched"])
@@ -979,10 +980,11 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-tab_overview, tab_captains, tab_data, tab_assets, tab_cost, tab_compare = st.tabs(
+tab_overview, tab_captains, tab_vehicles, tab_data, tab_assets, tab_cost, tab_compare = st.tabs(
     [
         "📊 Executive Overview",
         "🧑‍✈️ Captain Efficiency",
+        "🚛 Vehicles & Order Count",
         "🗂️ Audit Data",
         "🛠️ Asset Management",
         "💰 Cost Control",
@@ -1154,7 +1156,105 @@ with tab_captains:
             )
 
 # ============================================================================
-# TAB 3: AUDIT DATA
+# TAB 3: VEHICLES & ORDER COUNT
+# ============================================================================
+with tab_vehicles:
+    section_header("Vehicle Dispatch & Order Value Performance")
+    if not col_vehicle:
+        st.info(
+            "No Vehicle Plate No field found in the dataset. Expected a column "
+            "like 'Vehicle Plate No', 'Plate Number' or 'Vehicle Reg No'."
+        )
+    else:
+        veh_df = filtered.dropna(subset=[col_vehicle]).copy()
+        veh_df = veh_df[veh_df[col_vehicle].astype(str).str.strip() != ""]
+        if veh_df.empty:
+            st.info("No vehicle dispatch records available for the current filters.")
+        else:
+            veh_summary = (
+                veh_df.assign(**{
+                    "Vehicle Plate No": veh_df[col_vehicle].astype(str).str.strip().str.upper()
+                })
+                .groupby("Vehicle Plate No", dropna=False)
+                .agg(
+                    Orders_Dispatched=(col_client, "count"),
+                    Delivered_Orders=("Is Delivered", "sum"),
+                    Total_Order_Value=(col_value, "sum"),
+                )
+                .reset_index()
+                .sort_values("Orders_Dispatched", ascending=False)
+            )
+            veh_summary["Fulfillment_Rate"] = (
+                veh_summary["Delivered_Orders"] / veh_summary["Orders_Dispatched"] * 100
+            ).round(1)
+
+            render_kpis(
+                [
+                    (
+                        "Vehicles Deployed",
+                        fmt_num(veh_summary["Vehicle Plate No"].nunique()),
+                        "Unique vehicles with dispatch activity in the filtered view.",
+                        "🚛",
+                        BRAND["blue"],
+                    ),
+                    (
+                        "Orders Dispatched",
+                        fmt_num(veh_summary["Orders_Dispatched"].sum()),
+                        "Total orders carried across all vehicles (filtered view).",
+                        "📦",
+                        BRAND["blue"],
+                    ),
+                    (
+                        "Total Order Value",
+                        money(veh_summary["Total_Order_Value"].sum()),
+                        "Sum of Order Value across all dispatched orders.",
+                        "💰",
+                        BRAND["green"],
+                    ),
+                ]
+            )
+
+            display_veh = veh_summary.rename(
+                columns={
+                    "Orders_Dispatched": "Orders Dispatched",
+                    "Delivered_Orders": "Delivered Orders",
+                    "Total_Order_Value": "Total Order Value",
+                    "Fulfillment_Rate": "Fulfillment Rate (%)",
+                }
+            )
+            display_veh["Total Order Value"] = display_veh["Total Order Value"].apply(money)
+            st.dataframe(display_veh, use_container_width=True, hide_index=True)
+
+            chart_df = veh_summary.sort_values("Orders_Dispatched", ascending=True)
+            fig = px.bar(
+                chart_df,
+                x="Orders_Dispatched",
+                y="Vehicle Plate No",
+                orientation="h",
+                text="Orders_Dispatched",
+                title="Orders Dispatched by Vehicle",
+                color_discrete_sequence=[BRAND["blue"]],
+                labels={"Orders_Dispatched": "Orders Dispatched", "Vehicle Plate No": "Vehicle Plate No"},
+            )
+            fig.update_traces(textposition="outside", cliponaxis=False)
+            fig.update_layout(
+                showlegend=False,
+                height=max(360, min(650, 80 + len(chart_df) * 36)),
+                xaxis_title="Orders Dispatched",
+                yaxis_title=None,
+            )
+            st.plotly_chart(plotly_theme(fig), use_container_width=True)
+
+            csv_veh = veh_summary.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "⬇️ Download Vehicle Summary CSV",
+                data=csv_veh,
+                file_name="drugstoc_vehicle_order_summary.csv",
+                mime="text/csv",
+            )
+
+# ============================================================================
+# TAB 4: AUDIT DATA
 # ============================================================================
 with tab_data:
     section_header("Filtered Audit Logs", f"{len(filtered):,} records shown from {len(df):,} total records.")
@@ -1168,7 +1268,7 @@ with tab_data:
     )
 
 # ============================================================================
-# TAB 4: ASSET MANAGEMENT
+# TAB 5: ASSET MANAGEMENT
 # ============================================================================
 with tab_assets:
     st.subheader("🛠️ Asset Management")
@@ -1188,7 +1288,7 @@ with tab_assets:
     )
 
 # ============================================================================
-# TAB 5: COST CONTROL
+# TAB 6: COST CONTROL
 # ============================================================================
 with tab_cost:
     st.subheader("💰 Cost Control")
@@ -1208,7 +1308,7 @@ with tab_cost:
     )
 
 # ============================================================================
-# TAB 6: WoW / MoM KPI COMPARISON
+# TAB 7: WoW / MoM KPI COMPARISON
 # ============================================================================
 with tab_compare:
     section_header(
