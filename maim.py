@@ -1014,6 +1014,8 @@ if col_date and col_date in df.columns:
 # FUEL SHEET PROCESSING (Fueling Cost tab)
 # ----------------------------------------------------------------------------
 fuel = None
+col_fuel_date = None
+col_fuel_cost = None
 if fuel_raw is not None and not fuel_raw.empty:
     fuel = fuel_raw.copy()
     fuel.columns = [str(c).strip() for c in fuel.columns]
@@ -1070,6 +1072,7 @@ if assets_raw is not None and not assets_raw.empty:
 # REPAIRS AND SERVICING SHEET PROCESSING (coverage recheck + cost KPIs)
 # ----------------------------------------------------------------------------
 repairs = None
+col_repair_date = None
 col_repair_cost = None
 col_engine_cost = None
 if repairs_raw is not None and not repairs_raw.empty:
@@ -1142,6 +1145,13 @@ order_type_options = ["All Order Types"]
 if col_order_type and col_order_type in df.columns:
     order_type_options += sorted(df[col_order_type].dropna().astype(str).str.strip().unique().tolist(), reverse=True)
 
+def clear_filter_selections():
+    st.session_state["filter_month"] = "All Months"
+    st.session_state["filter_week"] = "All Weeks"
+    st.session_state["filter_region"] = "All Regions"
+    st.session_state["filter_status"] = "All Statuses"
+    st.session_state["filter_order_type"] = "All Order Types"
+
 # ----------------------------------------------------------------------------
 # HERO HEADER
 # ----------------------------------------------------------------------------
@@ -1180,17 +1190,24 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-f_month, f_week, f_region, f_status, f_type = st.columns(5)
+f_month, f_week, f_region, f_status, f_type, f_clear = st.columns([1.1, 1.1, 1, 1.2, 1.1, 0.9])
 with f_month:
-    selected_month = st.selectbox("Month", month_options)
+    selected_month = st.selectbox("Month", month_options, key="filter_month")
 with f_week:
-    selected_week = st.selectbox("Week", week_options)
+    selected_week = st.selectbox("Week", week_options, key="filter_week")
 with f_region:
-    selected_region = st.selectbox("Region / Hub", region_options)
+    selected_region = st.selectbox("Region / Hub", region_options, key="filter_region")
 with f_status:
-    selected_status = st.selectbox("Delivery Status (STATUS)", status_options)
+    selected_status = st.selectbox("Delivery Status (STATUS)", status_options, key="filter_status")
 with f_type:
-    selected_order_type = st.selectbox("Order Type", order_type_options)
+    selected_order_type = st.selectbox("Order Type", order_type_options, key="filter_order_type")
+with f_clear:
+    st.button(
+        "Clear filters",
+        on_click=clear_filter_selections,
+        key="clear_filter_selections",
+        type="primary",
+    )
 
 filtered = df.copy()
 if selected_month != "All Months":
@@ -1227,6 +1244,7 @@ if fuel_view is not None:
 PAGES = [
     "📊 Executive Overview",
     "📈 WoW / MoM Comparison",
+    "💡 Recommendations",
     "🚛 Vehicles & Order Count",
     "⛽ Fueling Cost",
     "🧑‍✈️ Captain Efficiency",
@@ -1236,7 +1254,7 @@ PAGES = [
 ]
 
 selected_page = st.sidebar.radio(
-    "Navigation",
+    "Dashboard pages",
     PAGES,
     label_visibility="collapsed",
 )
@@ -1295,8 +1313,12 @@ if selected_page == "📊 Executive Overview":
     engine_service_total = (
         repairs_view[col_engine_cost].sum() if (repairs_view is not None and col_engine_cost) else 0.0
     )
+    total_operational_cost = fuel_cost_total + repair_maint_total + engine_service_total
+    avg_operational_cost_per_order = (
+        total_operational_cost / total_orders if total_orders else None
+    )
 
-    section_header("Operational KPIs")
+    section_header("Order and Operations KPIs")
     render_kpis(
         [
             (
@@ -1342,6 +1364,19 @@ if selected_page == "📊 Executive Overview":
                 BRAND["blue"],
             ),
             (
+                "Total Operational Assets (Vehicle)",
+                fmt_num(total_assets),
+                "Distinct plate numbers across dispatch records and the Fuel tab.",
+                "🚛",
+                BRAND["blue"],
+            ),
+        ]
+    )
+
+    section_header("Operational Cost KPIs", "Fuel, repairs and servicing costs use the selected Month/Week filters.")
+    render_kpis(
+        [
+            (
                 "Total Fueling Cost",
                 money(fuel_cost_total),
                 (
@@ -1351,13 +1386,6 @@ if selected_page == "📊 Executive Overview":
                 ),
                 "⛽",
                 BRAND["green"],
-            ),
-            (
-                "Total Operational Assets (Vehicle)",
-                fmt_num(total_assets),
-                "Distinct plate numbers across dispatch records and the Fuel tab.",
-                "🚛",
-                BRAND["blue"],
             ),
             (
                 "Repairs and Maintenance Cost",
@@ -1372,6 +1400,13 @@ if selected_page == "📊 Executive Overview":
                 "Sum of the Engine Oil / Servicing column on the Repairs and Servicing tab.",
                 "🛢",
                 BRAND["amber"],
+            ),
+            (
+                "Average Cost per Order",
+                money(avg_operational_cost_per_order) if avg_operational_cost_per_order is not None else "N/A",
+                "Fuel, repairs and engine servicing costs divided by total dispensed orders.",
+                "💸",
+                BRAND["teal"],
             ),
         ]
     )
@@ -1604,7 +1639,156 @@ if selected_page == "📈 WoW / MoM Comparison":
     )
 
 # ============================================================================
-# TAB 3: VEHICLES & ORDER COUNT
+# TAB 3: MONTH-ON-MONTH RECOMMENDATIONS
+# ============================================================================
+if selected_page == "💡 Recommendations":
+    section_header(
+        "Month-on-Month Recommendations",
+        "Latest month versus the previous month, using the selected Region, Status and Order Type.",
+    )
+    recommendation_periods = comparison_periods(comparison_base)
+    if recommendation_periods is None:
+        st.info("No dated orders are available to generate monthly recommendations.")
+    else:
+        current_mask, previous_mask, current_bounds, previous_bounds = recommendation_periods["MoM"]
+        current_orders = comparison_base.loc[current_mask]
+        previous_orders = comparison_base.loc[previous_mask]
+
+        def order_metrics_for_period(frame):
+            orders_count = len(frame)
+            if not orders_count:
+                return {
+                    "Orders Dispensed": 0.0,
+                    "Fulfillment Rate": None,
+                    "Order-to-Delivery TAT": None,
+                    "Dispatch-to-Delivery TAT": None,
+                }
+            order_tat = frame["Creation_Delivery_TAT"].mean()
+            dispatch_tat = frame["Shipping_TAT"].mean()
+            return {
+                "Orders Dispensed": float(orders_count),
+                "Fulfillment Rate": float(frame["Is Delivered"].mean() * 100),
+                "Order-to-Delivery TAT": float(order_tat) if pd.notna(order_tat) else None,
+                "Dispatch-to-Delivery TAT": float(dispatch_tat) if pd.notna(dispatch_tat) else None,
+            }
+
+        def costs_for_period(frame, date_column, cost_column, bounds):
+            if frame is None or not date_column or not cost_column:
+                return 0.0
+            if date_column not in frame.columns or cost_column not in frame.columns:
+                return 0.0
+            start, end = bounds
+            in_period = frame[date_column].ge(start) & frame[date_column].lt(end)
+            return float(pd.to_numeric(frame.loc[in_period, cost_column], errors="coerce").sum())
+
+        current_metrics = order_metrics_for_period(current_orders)
+        previous_metrics = order_metrics_for_period(previous_orders)
+        for period_metrics, period_bounds, period_orders in (
+            (current_metrics, current_bounds, current_orders),
+            (previous_metrics, previous_bounds, previous_orders),
+        ):
+            fuel_cost = costs_for_period(fuel, col_fuel_date, col_fuel_cost, period_bounds)
+            repair_cost = costs_for_period(
+                repairs, col_repair_date, col_repair_cost, period_bounds
+            )
+            service_cost = costs_for_period(
+                repairs, col_repair_date, col_engine_cost, period_bounds
+            )
+            period_metrics["Fuel Cost"] = fuel_cost
+            period_metrics["Repairs and Maintenance Cost"] = repair_cost
+            period_metrics["Engine Servicing Cost"] = service_cost
+            period_metrics["Average Cost per Order"] = (
+                (fuel_cost + repair_cost + service_cost) / len(period_orders)
+                if len(period_orders)
+                else None
+            )
+
+        metric_rules = [
+            (
+                "Orders Dispensed", True, fmt_num,
+                "Prepare inventory and dispatch capacity for the higher demand.",
+                "Review client activity, order pipeline and service coverage.",
+            ),
+            (
+                "Fulfillment Rate", True, lambda value: f"{value:.1f}%",
+                "Maintain the practices supporting reliable fulfillment.",
+                "Investigate stock availability, picking delays and failed deliveries.",
+            ),
+            (
+                "Order-to-Delivery TAT", False, lambda value: f"{value:.1f} hrs",
+                "Keep the faster handoffs and dispatch routines in place.",
+                "Inspect order processing and delivery delays by route and facility.",
+            ),
+            (
+                "Dispatch-to-Delivery TAT", False, lambda value: f"{value:.1f} hrs",
+                "Sustain the route and dispatch practices reducing delivery time.",
+                "Review late routes, dispatch timing and delivery exceptions.",
+            ),
+            (
+                "Fuel Cost", False, money,
+                "Check that lower spend did not come from fewer deliveries; sustain efficient routes.",
+                "Review fuel outliers, route planning, idling and transaction records.",
+            ),
+            (
+                "Repairs and Maintenance Cost", False, money,
+                "Confirm preventive maintenance stayed on schedule despite lower spend.",
+                "Investigate repeat repairs, high-cost vehicles and maintenance gaps.",
+            ),
+            (
+                "Engine Servicing Cost", False, money,
+                "Verify servicing intervals were met and no work was deferred.",
+                "Review vehicle service history and engine-oil replacement intervals.",
+            ),
+            (
+                "Average Cost per Order", False, money,
+                "Maintain the operating changes that reduced cost per dispensed order.",
+                "Identify the largest fuel or maintenance drivers per dispensed order.",
+            ),
+        ]
+
+        def display_metric_value(value, formatter):
+            return formatter(value) if value is not None else "N/A"
+
+        recommendation_rows = []
+        for metric, higher_is_better, formatter, improvement_advice, decline_advice in metric_rules:
+            current_value = current_metrics[metric]
+            previous_value = previous_metrics[metric]
+            if current_value is None or previous_value is None:
+                change_text = "N/A"
+                advice = "Insufficient order data in one of the months for a meaningful comparison."
+            elif previous_value == 0:
+                change_text = "New baseline" if current_value else "0.0%"
+                advice = (
+                    "No prior-month baseline; monitor another month before setting a trend target."
+                    if current_value
+                    else "No activity in either month; verify the source data and operating schedule."
+                )
+            else:
+                change_pct = pct_change(current_value, previous_value)
+                change_text = f"{change_pct:+.1f}%" if change_pct is not None else "N/A"
+                if change_pct is None or abs(change_pct) < 1:
+                    advice = "Performance was broadly stable; maintain controls and continue monitoring."
+                else:
+                    improved = change_pct > 0 if higher_is_better else change_pct < 0
+                    advice = improvement_advice if improved else decline_advice
+
+            recommendation_rows.append(
+                {
+                    "Metric": metric,
+                    "Current month": display_metric_value(current_value, formatter),
+                    "Previous month": display_metric_value(previous_value, formatter),
+                    "Change": change_text,
+                    "Recommendation": advice,
+                }
+            )
+
+        current_label = current_bounds[0].strftime("%B %Y")
+        previous_label = previous_bounds[0].strftime("%B %Y")
+        st.caption(f"{current_label} compared with {previous_label}")
+        st.dataframe(pd.DataFrame(recommendation_rows), hide_index=True)
+
+# ============================================================================
+# TAB 4: VEHICLES & ORDER COUNT
 # ============================================================================
 if selected_page == "🚛 Vehicles & Order Count":
     section_header("Vehicle Dispatch & Order Value Performance")
