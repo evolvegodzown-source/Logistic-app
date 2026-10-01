@@ -440,6 +440,15 @@ st.markdown(
 # HELPERS
 # ----------------------------------------------------------------------------
 def money(value):
+    """Compact naira format: ₦1.5M, ₦450.0K, ₦850."""
+    value = float(value) if value is not None else 0.0
+    magnitude = abs(value)
+    if magnitude >= 1_000_000_000:
+        return f"₦{value / 1_000_000_000:.1f}B"
+    if magnitude >= 1_000_000:
+        return f"₦{value / 1_000_000:.1f}M"
+    if magnitude >= 1_000:
+        return f"₦{value / 1_000:.1f}K"
     return f"₦{value:,.0f}"
 
 def fmt_num(value):
@@ -1064,6 +1073,15 @@ if selected_status != "All Statuses":
 if selected_order_type != "All Order Types" and col_order_type:
     comparison_base = comparison_base[comparison_base[col_order_type].astype(str).str.strip() == selected_order_type]
 
+# Fuel rows filtered by the Month/Week slicers (shared by the overview KPI and
+# the Fueling Cost page; fuel carries its own DATE so Region/Status don't apply)
+fuel_view = fuel.copy() if fuel is not None else None
+if fuel_view is not None:
+    if selected_month != "All Months" and "Fuel Month Label" in fuel_view.columns:
+        fuel_view = fuel_view[fuel_view["Fuel Month Label"] == selected_month]
+    if selected_week != "All Weeks" and "Fuel Week Label" in fuel_view.columns:
+        fuel_view = fuel_view[fuel_view["Fuel Week Label"] == selected_week]
+
 # ----------------------------------------------------------------------------
 # SIDEBAR PAGE NAVIGATION
 # ----------------------------------------------------------------------------
@@ -1078,7 +1096,6 @@ PAGES = [
     "💰 Cost Control",
 ]
 
-st.sidebar.markdown("### 🧭 Navigation")
 selected_page = st.sidebar.radio(
     "Navigation",
     PAGES,
@@ -1098,6 +1115,21 @@ if selected_page == "📊 Executive Overview":
     total_ctns = filtered[col_qty].sum()
     avg_order_value = total_value / total_orders if total_orders else 0
     facilities = filtered[col_client].nunique()
+
+    # Fuel KPIs (from the Fuel tab; respects the Month/Week slicers)
+    fuel_cost_total = fuel_view[col_fuel_cost].sum() if (fuel_view is not None and col_fuel_cost) else 0
+    top_plate = None
+    top_plate_cost = 0
+    if fuel_view is not None and col_fuel_cost and col_fuel_plate:
+        plate_totals = (
+            fuel_view.dropna(subset=[col_fuel_plate])
+            .assign(_plate=lambda x: x[col_fuel_plate].astype(str).str.strip().str.upper())
+            .groupby("_plate")[col_fuel_cost]
+            .sum()
+        )
+        if len(plate_totals):
+            top_plate = plate_totals.idxmax()
+            top_plate_cost = plate_totals.max()
 
     section_header("Operational KPIs")
     render_kpis(
@@ -1143,6 +1175,17 @@ if selected_page == "📊 Executive Overview":
                 "Total cartons recorded across filtered orders.",
                 "📦",
                 BRAND["blue"],
+            ),
+            (
+                "Total Fueling Cost",
+                money(fuel_cost_total),
+                (
+                    f"Highest consumption: {top_plate} · {money(top_plate_cost)}"
+                    if top_plate
+                    else "No fuel records match the current Month/Week filters."
+                ),
+                "⛽",
+                BRAND["green"],
             ),
         ]
     )
@@ -1403,13 +1446,6 @@ if selected_page == "⛽ Fueling Cost":
     elif not col_fuel_cost:
         st.info("No fueling cost column (e.g. 'Fueling/Ltr') found in the Fuel sheet.")
     else:
-        # Respect the sidebar Month / Week picks (fuel rows carry their own DATE)
-        fuel_view = fuel.copy()
-        if selected_month != "All Months" and "Fuel Month Label" in fuel_view.columns:
-            fuel_view = fuel_view[fuel_view["Fuel Month Label"] == selected_month]
-        if selected_week != "All Weeks" and "Fuel Week Label" in fuel_view.columns:
-            fuel_view = fuel_view[fuel_view["Fuel Week Label"] == selected_week]
-
         total_fuel_cost = fuel_view[col_fuel_cost].sum()
         fuel_events = int(fuel_view[col_fuel_cost].notna().sum())
         total_deliveries = int(filtered["Is Delivered"].sum())
