@@ -362,7 +362,7 @@ st.markdown(
         }}
         .comparison-grid {{
             display: grid;
-            grid-template-columns: repeat(4, minmax(0, 1fr));
+            grid-template-columns: repeat(5, minmax(0, 1fr));
             gap: 12px;
         }}
         .comparison-card {{
@@ -469,23 +469,33 @@ def comparison_periods(data_df):
             & data_df["Created_DT"].lt(current_week_start + pd.Timedelta(days=7)),
             data_df["Created_DT"].ge(current_week_start - pd.Timedelta(days=7))
             & data_df["Created_DT"].lt(current_week_start),
+            (current_week_start, current_week_start + pd.Timedelta(days=7)),
+            (current_week_start - pd.Timedelta(days=7), current_week_start),
         ),
         "MoM": (
             data_df["Created_DT"].ge(current_month_start)
             & data_df["Created_DT"].lt(current_month_start + pd.offsets.MonthBegin(1)),
             data_df["Created_DT"].ge(previous_month_end.replace(day=1))
             & data_df["Created_DT"].lt(current_month_start),
+            (current_month_start, current_month_start + pd.offsets.MonthBegin(1)),
+            (previous_month_end.replace(day=1), current_month_start),
         ),
     }
 
-def comparison_metrics(data_df, mask):
+def comparison_metrics(data_df, mask, fuel_bounds=None):
     period = data_df.loc[mask]
     orders = len(period)
+    fuel_cost = 0.0
+    if fuel_bounds and fuel_view is not None and col_fuel_date and col_fuel_cost:
+        f_start, f_end = fuel_bounds
+        f_mask = (fuel_view[col_fuel_date] >= f_start) & (fuel_view[col_fuel_date] < f_end)
+        fuel_cost = float(fuel_view.loc[f_mask, col_fuel_cost].sum())
     return {
         "Order Volume": float(orders),
         "Fulfillment Rate": float(period["Is Delivered"].mean() * 100) if orders else 0.0,
         "TAT: Order to Delivery": float(period["Creation_Delivery_TAT"].mean()) if orders else 0.0,
         "TAT: Dispatch to Delivery": float(period["Shipping_TAT"].mean()) if orders else 0.0,
+        "Fuel Cost": fuel_cost,
     }
 
 def comparison_value(metric, value):
@@ -493,6 +503,8 @@ def comparison_value(metric, value):
         return f"{value:,.0f}"
     if metric == "Fulfillment Rate":
         return f"{value:.1f}%"
+    if metric == "Fuel Cost":
+        return money(value)
     return f"{value:.1f} hrs"
 
 def render_comparison_section(data_df):
@@ -515,11 +527,12 @@ def render_comparison_section(data_df):
         "Fulfillment Rate",
         "TAT: Order to Delivery",
         "TAT: Dispatch to Delivery",
+        "Fuel Cost",
     ]
     lower_is_better = ("TAT: Order to Delivery", "TAT: Dispatch to Delivery")
-    for comparison_name, (current_mask, previous_mask) in periods.items():
-        current = comparison_metrics(data_df, current_mask)
-        previous = comparison_metrics(data_df, previous_mask)
+    for comparison_name, (current_mask, previous_mask, curr_bounds, prev_bounds) in periods.items():
+        current = comparison_metrics(data_df, current_mask, curr_bounds)
+        previous = comparison_metrics(data_df, previous_mask, prev_bounds)
         cards = []
         for metric in metric_order:
             current_value = current[metric]
@@ -733,7 +746,15 @@ COMPARE_KPIS = [
     "Fulfilment Rate",
     "TAT: Order to Delivery",
     "TAT: Dispatch to Delivery",
+    "Fuel Cost",
 ]
+
+def fuel_cost_between(start, end_exclusive):
+    """Total fuel cost within a date window from the (slicer-filtered) Fuel tab."""
+    if fuel_view is None or not col_fuel_date or not col_fuel_cost:
+        return 0.0
+    mask = (fuel_view[col_fuel_date] >= start) & (fuel_view[col_fuel_date] < end_exclusive)
+    return float(fuel_view.loc[mask, col_fuel_cost].sum())
 
 def compute_period_kpis(frame):
     """Compute the 4 core operational KPIs for a given dataframe slice."""
@@ -761,6 +782,8 @@ def format_kpi_value(kpi_name, value):
         return fmt_num(value)
     if kpi_name == "Fulfilment Rate":
         return f"{value:.1f}%"
+    if kpi_name == "Fuel Cost":
+        return money(value)
     return f"{value:.1f} hrs"
 
 def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_label):
@@ -995,13 +1018,23 @@ if fuel_raw is not None and not fuel_raw.empty:
 # ----------------------------------------------------------------------------
 # FILTER OPTIONS (rendered as a top filter bar below the hero)
 # ----------------------------------------------------------------------------
-month_options = ["All Months"] + sorted(df["Month Label"].dropna().unique().tolist())
-week_options = ["All Weeks"] + sorted(df["Week Label"].dropna().unique().tolist())
-region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).unique().tolist())
-status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
+month_options = ["All Months"]
+if {"Year", "Month"}.issubset(df.columns):
+    month_sorted = (
+        df.dropna(subset=["Month Label"])
+        .drop_duplicates("Month Label")[["Month Label", "Year", "Month"]]
+        .sort_values(["Year", "Month"], ascending=False)
+    )
+    month_options += month_sorted["Month Label"].tolist()
+else:
+    month_options += sorted(df["Month Label"].dropna().unique().tolist(), reverse=True)
+
+week_options = ["All Weeks"] + sorted(df["Week Label"].dropna().unique().tolist(), reverse=True)
+region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).unique().tolist(), reverse=True)
+status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist(), reverse=True)
 order_type_options = ["All Order Types"]
 if col_order_type and col_order_type in df.columns:
-    order_type_options += sorted(df[col_order_type].dropna().astype(str).str.strip().unique().tolist())
+    order_type_options += sorted(df[col_order_type].dropna().astype(str).str.strip().unique().tolist(), reverse=True)
 
 # ----------------------------------------------------------------------------
 # HERO HEADER
@@ -1194,7 +1227,12 @@ if selected_page == "📊 Executive Overview":
         "Week-on-Week & Month-on-Month Performance",
         "Green indicates improvement, red indicates decline. For TAT metrics the colours are reversed — a decrease in turnaround time is green.",
     )
-    render_comparison_section(comparison_base)
+    overview_comp = comparison_base.copy()
+    if selected_month != "All Months":
+        overview_comp = overview_comp[overview_comp["Month Label"] == selected_month]
+    if selected_week != "All Weeks":
+        overview_comp = overview_comp[overview_comp["Week Label"] == selected_week]
+    render_comparison_section(overview_comp)
 
     section_header("Performance Trend", "Track fulfillment and delivery turnaround over time.")
     render_performance_trend(filtered)
@@ -1258,12 +1296,19 @@ if selected_page == "📊 Executive Overview":
 if selected_page == "📈 WoW / MoM Comparison":
     section_header(
         "Week-on-Week & Month-on-Month Performance",
-        "Pie-chart share comparison across the 4 core operational KPIs",
+        "Pie-chart share comparison across the core operational KPIs plus fuel cost",
     )
 
-    # Reference date = latest available order date in the dataset
-    if col_date and col_date in df.columns and df[col_date].notna().any():
-        ref_date = df[col_date].max()
+    # Comparison base respects the sidebar slicers (Month/Week on top of Region/Status/Order Type)
+    comp_df = comparison_base.copy()
+    if selected_month != "All Months":
+        comp_df = comp_df[comp_df["Month Label"] == selected_month]
+    if selected_week != "All Weeks":
+        comp_df = comp_df[comp_df["Week Label"] == selected_week]
+
+    # Reference date = latest available order date in the filtered dataset
+    if col_date and col_date in comp_df.columns and comp_df[col_date].notna().any():
+        ref_date = comp_df[col_date].max()
     else:
         ref_date = pd.Timestamp.today()
 
@@ -1272,8 +1317,8 @@ if selected_page == "📈 WoW / MoM Comparison":
     prev_week_start = week_start - pd.Timedelta(days=7)
     prev_week_end = week_start - pd.Timedelta(days=1)
 
-    curr_week_df = df[(df[col_date] >= week_start) & (df[col_date] <= ref_date)]
-    prev_week_df = df[(df[col_date] >= prev_week_start) & (df[col_date] <= prev_week_end)]
+    curr_week_df = comp_df[(comp_df[col_date] >= week_start) & (comp_df[col_date] <= ref_date)]
+    prev_week_df = comp_df[(comp_df[col_date] >= prev_week_start) & (comp_df[col_date] <= prev_week_end)]
 
     curr_week_label = f"W{int(week_start.isocalendar().week):02d}"
     prev_week_label = f"W{int(prev_week_start.isocalendar().week):02d}"
@@ -1283,8 +1328,8 @@ if selected_page == "📈 WoW / MoM Comparison":
     prev_month_end = month_start - pd.Timedelta(days=1)
     prev_month_start = prev_month_end.replace(day=1)
 
-    curr_month_df = df[(df[col_date] >= month_start) & (df[col_date] <= ref_date)]
-    prev_month_df = df[(df[col_date] >= prev_month_start) & (df[col_date] <= prev_month_end)]
+    curr_month_df = comp_df[(comp_df[col_date] >= month_start) & (comp_df[col_date] <= ref_date)]
+    prev_month_df = comp_df[(comp_df[col_date] >= prev_month_start) & (comp_df[col_date] <= prev_month_end)]
 
     curr_month_label = month_start.strftime("%b %Y")
     prev_month_label = prev_month_start.strftime("%b %Y")
@@ -1298,8 +1343,10 @@ if selected_page == "📈 WoW / MoM Comparison":
     )
     wow_curr = compute_period_kpis(curr_week_df)
     wow_prev = compute_period_kpis(prev_week_df)
+    wow_curr["Fuel Cost"] = fuel_cost_between(week_start, ref_date + pd.Timedelta(days=1))
+    wow_prev["Fuel Cost"] = fuel_cost_between(prev_week_start, week_start)
 
-    wow_cols = st.columns(4)
+    wow_cols = st.columns(len(COMPARE_KPIS))
     for col, kpi in zip(wow_cols, COMPARE_KPIS):
         with col:
             st.plotly_chart(
@@ -1318,8 +1365,10 @@ if selected_page == "📈 WoW / MoM Comparison":
     )
     mom_curr = compute_period_kpis(curr_month_df)
     mom_prev = compute_period_kpis(prev_month_df)
+    mom_curr["Fuel Cost"] = fuel_cost_between(month_start, ref_date + pd.Timedelta(days=1))
+    mom_prev["Fuel Cost"] = fuel_cost_between(prev_month_start, month_start)
 
-    mom_cols = st.columns(4)
+    mom_cols = st.columns(len(COMPARE_KPIS))
     for col, kpi in zip(mom_cols, COMPARE_KPIS):
         with col:
             st.plotly_chart(
@@ -1331,7 +1380,8 @@ if selected_page == "📈 WoW / MoM Comparison":
     st.caption(
         "ℹ️ Slice size represents each period's share of the combined total. "
         "TAT deltas are colour-coded green when turnaround improves (decreases). "
-        "Comparison uses the full dataset, ignoring the sidebar filters."
+        "Fuel Cost deltas follow the volume rule (increase = green). "
+        "Comparison respects the sidebar slicers (Month, Week, Region, Status, Order Type)."
     )
 
 # ============================================================================
