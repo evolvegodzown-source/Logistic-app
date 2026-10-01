@@ -884,7 +884,11 @@ def load_data(path=DATA_PATH):
         (s for n, s in all_sheets.items() if str(n).strip().lower() == "assets"),
         None,
     )
-    return combined_df, fuel_sheet, assets_sheet
+    repairs_sheet = next(
+        (s for n, s in all_sheets.items() if "repair" in str(n).lower() and "servic" in str(n).lower()),
+        None,
+    )
+    return combined_df, fuel_sheet, assets_sheet, repairs_sheet
 
 # ----------------------------------------------------------------------------
 # SIDEBAR HEADER & REFRESH BUTTON
@@ -908,7 +912,7 @@ if st.sidebar.button("🔄 Refresh Data"):
 # ----------------------------------------------------------------------------
 try:
     with st.spinner("🔄 Refreshing live logistics data..."):
-        df_raw, fuel_raw, assets_raw = load_data(DATA_PATH)
+        df_raw, fuel_raw, assets_raw, repairs_raw = load_data(DATA_PATH)
 except Exception as exc:
     st.error("Unable to load the logistics workbook.")
     st.info("Verify the live link contains valid Excel tables.")
@@ -1025,7 +1029,12 @@ if fuel_raw is not None and not fuel_raw.empty:
 plate_to_area = {}
 if assets_raw is not None and not assets_raw.empty:
     assets_df = assets_raw.copy()
-    assets_df.columns = [str(c).strip() for c in assets_df.columns]
+    # The Assets sheet ships with its real header on the first data row
+    if assets_df.columns.astype(str).str.startswith("Unnamed").mean() > 0.5:
+        assets_df.columns = [str(c).strip() for c in assets_df.iloc[0]]
+        assets_df = assets_df.iloc[1:].reset_index(drop=True)
+    else:
+        assets_df.columns = [str(c).strip() for c in assets_df.columns]
     col_assets_plate = find_col(
         assets_df,
         ["PlateNumber", "Plate Number", "Plate No", "Vehicle Plate No", "Vehicle Reg No", "Reg No"],
@@ -1042,6 +1051,54 @@ if assets_raw is not None and not assets_raw.empty:
         )
         pairs = pairs[(pairs["_plate"] != "") & pairs[col_assets_area].notna()]
         plate_to_area = dict(zip(pairs["_plate"], pairs[col_assets_area].astype(str).str.strip()))
+
+# ----------------------------------------------------------------------------
+# REPAIRS AND SERVICING SHEET PROCESSING (coverage recheck + cost KPIs)
+# ----------------------------------------------------------------------------
+repairs = None
+col_repair_cost = None
+col_engine_cost = None
+if repairs_raw is not None and not repairs_raw.empty:
+    repairs = repairs_raw.copy()
+    repairs.columns = [str(c).strip() for c in repairs.columns]
+    col_repair_date = find_col(repairs, ["Date", "DATE"])
+    col_repair_plate = find_col(repairs, ["PLATENUMBER", "PlateNumber", "Plate Number", "Plate No"])
+    col_repair_area = find_col(repairs, ["AREA COVERED", "Area Covered", "Coverage Area", "Coverage"])
+    col_repair_cost = find_col(
+        repairs,
+        [
+            "MAINTAINANCE & REPAIR", "Maintenance & Repair", "Maintenance and Repair",
+            "Repair and Maintenance", "Repairs and Maintenance", "Maintainance",
+            "Maintenance", "Repair",
+        ],
+    )
+    col_engine_cost = find_col(
+        repairs,
+        ["Servicing", "Servcing", "Engine Servicing", "Engine Oil", "Cost of Engine Oil"],
+    )
+
+    if col_repair_date and col_repair_date in repairs.columns:
+        repairs[col_repair_date] = pd.to_datetime(repairs[col_repair_date], errors="coerce")
+        repairs["Repair Month Label"] = repairs[col_repair_date].dt.strftime("%B %Y").fillna("Unassigned Date")
+        repairs["Repair Year"] = repairs[col_repair_date].dt.year
+        repairs["Repair Week"] = repairs[col_repair_date].dt.isocalendar().week.astype(int)
+        repairs["Repair Week Label"] = (
+            "W" + repairs["Repair Week"].astype(str).str.zfill(2) + " - " + repairs["Repair Year"].astype(str)
+        )
+    for cost_col in (col_repair_cost, col_engine_cost):
+        if cost_col and cost_col in repairs.columns:
+            repairs[cost_col] = pd.to_numeric(repairs[cost_col], errors="coerce")
+
+    # Coverage recheck: add plates from this tab that the Assets sheet missed
+    if col_repair_plate and col_repair_area:
+        rpairs = (
+            repairs[[col_repair_plate, col_repair_area]]
+            .dropna(subset=[col_repair_plate])
+            .assign(_plate=lambda x: x[col_repair_plate].astype(str).str.strip().str.upper())
+        )
+        rpairs = rpairs[(rpairs["_plate"] != "") & rpairs[col_repair_area].notna()]
+        for plate, area in zip(rpairs["_plate"], rpairs[col_repair_area].astype(str).str.strip()):
+            plate_to_area.setdefault(plate, area)
 
 # ----------------------------------------------------------------------------
 # FILTER OPTIONS (rendered as a top filter bar below the hero)
@@ -1204,6 +1261,20 @@ if selected_page == "📊 Executive Overview":
         )
     total_assets = len(asset_plates)
 
+    # Repairs & servicing totals (respect the Month/Week slicers)
+    repairs_view = repairs.copy() if repairs is not None else None
+    if repairs_view is not None:
+        if selected_month != "All Months" and "Repair Month Label" in repairs_view.columns:
+            repairs_view = repairs_view[repairs_view["Repair Month Label"] == selected_month]
+        if selected_week != "All Weeks" and "Repair Week Label" in repairs_view.columns:
+            repairs_view = repairs_view[repairs_view["Repair Week Label"] == selected_week]
+    repair_maint_total = (
+        repairs_view[col_repair_cost].sum() if (repairs_view is not None and col_repair_cost) else 0.0
+    )
+    engine_service_total = (
+        repairs_view[col_engine_cost].sum() if (repairs_view is not None and col_engine_cost) else 0.0
+    )
+
     section_header("Operational KPIs")
     render_kpis(
         [
@@ -1268,17 +1339,17 @@ if selected_page == "📊 Executive Overview":
                 BRAND["blue"],
             ),
             (
-                "Maintenance Cost",
-                "₦—",
-                "Calculation logic to be provided.",
+                "Repairs and Maintenance Cost",
+                money(repair_maint_total),
+                "Sum of the Maintenance & Repair column on the Repairs and Servicing tab.",
                 "🔧",
                 BRAND["amber"],
             ),
             (
-                "Statutory Papers Cost",
-                "₦—",
-                "Calculation logic to be provided.",
-                "📄",
+                "Engine Servicing Cost",
+                money(engine_service_total),
+                "Sum of the Engine Oil / Servicing column on the Repairs and Servicing tab.",
+                "🛢",
                 BRAND["amber"],
             ),
         ]
