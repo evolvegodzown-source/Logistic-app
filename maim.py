@@ -123,6 +123,47 @@ st.markdown(
             border-color: var(--ds-blue) !important;
             background: rgba(22,134,217,.18) !important;
         }}
+        @keyframes ds-pulse {{
+            0% {{ box-shadow: 0 0 0 0 rgba(22,134,217,.45); }}
+            70% {{ box-shadow: 0 0 0 12px rgba(22,134,217,0); }}
+            100% {{ box-shadow: 0 0 0 0 rgba(22,134,217,0); }}
+        }}
+        @keyframes ds-spin {{
+            from {{ transform: rotate(0deg); }}
+            to {{ transform: rotate(360deg); }}
+        }}
+        section[data-testid="stSidebar"] .stButton button {{
+            animation: ds-pulse 2.4s infinite;
+        }}
+        section[data-testid="stSidebar"] .stButton button:active {{
+            animation: ds-spin .45s linear;
+        }}
+        section[data-testid="stSidebar"] [data-testid="stRadio"] input {{
+            display: none;
+        }}
+        section[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {{
+            gap: 7px;
+        }}
+        section[data-testid="stSidebar"] [data-testid="stRadio"] label {{
+            display: flex;
+            width: 100%;
+            padding: 10px 14px !important;
+            border-radius: 11px !important;
+            background: rgba(255,255,255,.08) !important;
+            border: 1px solid rgba(255,255,255,.14) !important;
+            cursor: pointer;
+            transition: background .15s ease, border-color .15s ease, transform .15s ease;
+        }}
+        section[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {{
+            background: rgba(22,134,217,.18) !important;
+            border-color: var(--ds-blue) !important;
+            transform: translateX(3px);
+        }}
+        section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {{
+            background: #1686D9 !important;
+            border-color: #1686D9 !important;
+            box-shadow: 0 6px 16px rgba(22,134,217,.35);
+        }}
         .sidebar-brand {{
             padding: 6px 0 18px 0;
             text-align: center;
@@ -788,7 +829,7 @@ def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_
 # ----------------------------------------------------------------------------
 # DATA LOADING
 # ----------------------------------------------------------------------------
-@st.cache_data(ttl=300, show_spinner="Fetching live logistics data...")
+@st.cache_data(ttl=300, show_spinner=False)
 def load_data(path=DATA_PATH):
     headers = {
         "User-Agent": (
@@ -830,7 +871,8 @@ if st.sidebar.button("🔄 Refresh Data"):
 # DATA PROCESSING
 # ----------------------------------------------------------------------------
 try:
-    df_raw, fuel_raw = load_data(DATA_PATH)
+    with st.spinner("🔄 Refreshing live logistics data..."):
+        df_raw, fuel_raw = load_data(DATA_PATH)
 except Exception as exc:
     st.error("Unable to load the logistics workbook.")
     st.info("Verify the live link contains valid Excel tables.")
@@ -985,7 +1027,7 @@ st.markdown(
     f"""
     <div class="section-head" style="margin-top:0">
         <div class="section-title">🎛️ Filters</div>
-        <div class="section-note">Slicers apply to every tab below</div>
+        <div class="section-note">Slicers apply to every page below</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -1022,23 +1064,31 @@ if selected_status != "All Statuses":
 if selected_order_type != "All Order Types" and col_order_type:
     comparison_base = comparison_base[comparison_base[col_order_type].astype(str).str.strip() == selected_order_type]
 
-tab_overview, tab_compare, tab_vehicles, tab_fuel, tab_captains, tab_data, tab_assets, tab_cost = st.tabs(
-    [
-        "📊 Executive Overview",
-        "📈 WoW / MoM Comparison",
-        "🚛 Vehicles & Order Count",
-        "⛽ Fueling Cost",
-        "🧑‍✈️ Captain Efficiency",
-        "🗂️ Audit Data",
-        "🛠️ Asset Management",
-        "💰 Cost Control",
-    ]
+# ----------------------------------------------------------------------------
+# SIDEBAR PAGE NAVIGATION
+# ----------------------------------------------------------------------------
+PAGES = [
+    "📊 Executive Overview",
+    "📈 WoW / MoM Comparison",
+    "🚛 Vehicles & Order Count",
+    "⛽ Fueling Cost",
+    "🧑‍✈️ Captain Efficiency",
+    "🗂️ Audit Data",
+    "🛠️ Asset Management",
+    "💰 Cost Control",
+]
+
+st.sidebar.markdown("### 🧭 Navigation")
+selected_page = st.sidebar.radio(
+    "Navigation",
+    PAGES,
+    label_visibility="collapsed",
 )
 
 # ============================================================================
 # TAB 1: EXECUTIVE OVERVIEW
 # ============================================================================
-with tab_overview:
+if selected_page == "📊 Executive Overview":
     total_orders = int(filtered[col_client].count()) if col_client else len(filtered)
     total_value = filtered[col_value].sum()
     delivered_count = int(filtered["Is Delivered"].sum())
@@ -1162,7 +1212,7 @@ with tab_overview:
 # ============================================================================
 # TAB 2: WoW / MoM KPI COMPARISON
 # ============================================================================
-with tab_compare:
+if selected_page == "📈 WoW / MoM Comparison":
     section_header(
         "Week-on-Week & Month-on-Month Performance",
         "Pie-chart share comparison across the 4 core operational KPIs",
@@ -1244,7 +1294,7 @@ with tab_compare:
 # ============================================================================
 # TAB 3: VEHICLES & ORDER COUNT
 # ============================================================================
-with tab_vehicles:
+if selected_page == "🚛 Vehicles & Order Count":
     section_header("Vehicle Dispatch & Order Value Performance")
     if not col_vehicle:
         st.info(
@@ -1342,7 +1392,7 @@ with tab_vehicles:
 # ============================================================================
 # TAB 4: FUELING COST
 # ============================================================================
-with tab_fuel:
+if selected_page == "⛽ Fueling Cost":
     section_header(
         "Fueling Cost",
         "Fuel spend picked from the Fuel tab of the logistics_DB workbook.",
@@ -1451,7 +1501,7 @@ with tab_fuel:
 # ============================================================================
 # TAB 5: CAPTAIN PERFORMANCE
 # ============================================================================
-with tab_captains:
+if selected_page == "🧑‍✈️ Captain Efficiency":
     section_header("Rider & Captain Turnaround Performance")
     if not col_captain:
         st.info("No Captain field found in the dataset.")
@@ -1490,7 +1540,7 @@ with tab_captains:
 # ============================================================================
 # TAB 6: AUDIT DATA
 # ============================================================================
-with tab_data:
+if selected_page == "🗂️ Audit Data":
     section_header("Filtered Audit Logs", f"{len(filtered):,} records shown from {len(df):,} total records.")
     st.dataframe(filtered, use_container_width=True, hide_index=True, height=600)
     csv = filtered.to_csv(index=False).encode("utf-8")
@@ -1504,7 +1554,7 @@ with tab_data:
 # ============================================================================
 # TAB 7: ASSET MANAGEMENT
 # ============================================================================
-with tab_assets:
+if selected_page == "🛠️ Asset Management":
     st.subheader("🛠️ Asset Management")
     st.markdown(
         "Track and manage logistics assets — vehicles, cold-chain equipment, "
@@ -1524,7 +1574,7 @@ with tab_assets:
 # ============================================================================
 # TAB 8: COST CONTROL
 # ============================================================================
-with tab_cost:
+if selected_page == "💰 Cost Control":
     st.subheader("💰 Cost Control")
     st.markdown(
         "Monitor logistics spend, cost per delivery, fuel efficiency, and "
