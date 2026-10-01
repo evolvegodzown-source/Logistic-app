@@ -880,7 +880,11 @@ def load_data(path=DATA_PATH):
         (s for n, s in all_sheets.items() if str(n).strip().lower() == "fuel"),
         None,
     )
-    return combined_df, fuel_sheet
+    assets_sheet = next(
+        (s for n, s in all_sheets.items() if str(n).strip().lower() == "assets"),
+        None,
+    )
+    return combined_df, fuel_sheet, assets_sheet
 
 # ----------------------------------------------------------------------------
 # SIDEBAR HEADER & REFRESH BUTTON
@@ -904,7 +908,7 @@ if st.sidebar.button("🔄 Refresh Data"):
 # ----------------------------------------------------------------------------
 try:
     with st.spinner("🔄 Refreshing live logistics data..."):
-        df_raw, fuel_raw = load_data(DATA_PATH)
+        df_raw, fuel_raw, assets_raw = load_data(DATA_PATH)
 except Exception as exc:
     st.error("Unable to load the logistics workbook.")
     st.info("Verify the live link contains valid Excel tables.")
@@ -1014,6 +1018,30 @@ if fuel_raw is not None and not fuel_raw.empty:
         )
     if col_fuel_cost and col_fuel_cost in fuel.columns:
         fuel[col_fuel_cost] = pd.to_numeric(fuel[col_fuel_cost], errors="coerce")
+
+# ----------------------------------------------------------------------------
+# ASSETS SHEET PROCESSING (plate number -> coverage area mapping)
+# ----------------------------------------------------------------------------
+plate_to_area = {}
+if assets_raw is not None and not assets_raw.empty:
+    assets_df = assets_raw.copy()
+    assets_df.columns = [str(c).strip() for c in assets_df.columns]
+    col_assets_plate = find_col(
+        assets_df,
+        ["PlateNumber", "Plate Number", "Plate No", "Vehicle Plate No", "Vehicle Reg No", "Reg No"],
+    )
+    col_assets_area = find_col(
+        assets_df,
+        ["Coverage Area", "Coverage", "Area", "Zone", "Region", "Territory", "Location"],
+    )
+    if col_assets_plate and col_assets_area:
+        pairs = (
+            assets_df[[col_assets_plate, col_assets_area]]
+            .dropna(subset=[col_assets_plate])
+            .assign(_plate=lambda x: x[col_assets_plate].astype(str).str.strip().str.upper())
+        )
+        pairs = pairs[(pairs["_plate"] != "") & pairs[col_assets_area].notna()]
+        plate_to_area = dict(zip(pairs["_plate"], pairs[col_assets_area].astype(str).str.strip()))
 
 # ----------------------------------------------------------------------------
 # FILTER OPTIONS (rendered as a top filter bar below the hero)
@@ -1233,11 +1261,25 @@ if selected_page == "📊 Executive Overview":
                 BRAND["green"],
             ),
             (
-                "Total Assets",
+                "Total Operational Assets (Vehicle)",
                 fmt_num(total_assets),
                 "Distinct plate numbers across dispatch records and the Fuel tab.",
                 "🚛",
                 BRAND["blue"],
+            ),
+            (
+                "Maintenance Cost",
+                "₦—",
+                "Calculation logic to be provided.",
+                "🔧",
+                BRAND["amber"],
+            ),
+            (
+                "Statutory Papers Cost",
+                "₦—",
+                "Calculation logic to be provided.",
+                "📄",
+                BRAND["amber"],
             ),
         ]
     )
@@ -1308,6 +1350,72 @@ if selected_page == "📊 Executive Overview":
                 ],
             )
             st.plotly_chart(plotly_theme(fig), use_container_width=True)
+
+    section_header(
+        "Coverage Area Analysis",
+        "Order count and fuel cost grouped by vehicle coverage area (from the Assets tab).",
+    )
+    if col_vehicle:
+        order_area = (
+            filtered.dropna(subset=[col_vehicle])
+            .assign(_area=lambda x: x[col_vehicle].map(
+                lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned")
+            ))
+            .groupby("_area")[col_client]
+            .count()
+            .reset_index(name="Orders")
+        )
+    else:
+        order_area = pd.DataFrame({"_area": ["Unassigned"], "Orders": [len(filtered)]})
+
+    if fuel_view is not None and col_fuel_cost and col_fuel_plate:
+        fuel_area = (
+            fuel_view.dropna(subset=[col_fuel_plate])
+            .assign(_area=lambda x: x[col_fuel_plate].map(
+                lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned")
+            ))
+            .groupby("_area")[col_fuel_cost]
+            .sum()
+            .reset_index(name="Fuel Cost")
+        )
+    else:
+        fuel_area = pd.DataFrame(columns=["_area", "Fuel Cost"])
+
+    area_analysis = pd.merge(order_area, fuel_area, on="_area", how="outer").fillna(0)
+    area_analysis = area_analysis.rename(columns={"_area": "Coverage Area"}).sort_values(
+        "Orders", ascending=False
+    )
+
+    if area_analysis.empty:
+        show_empty_chart("No coverage area data available.")
+    else:
+        fig = go.Figure()
+        fig.add_bar(
+            x=area_analysis["Coverage Area"],
+            y=area_analysis["Orders"],
+            name="Order Count",
+            marker_color=BRAND["blue"],
+        )
+        fig.add_bar(
+            x=area_analysis["Coverage Area"],
+            y=area_analysis["Fuel Cost"],
+            name="Fuel Cost (₦)",
+            marker_color=BRAND["green"],
+            yaxis="y2",
+        )
+        fig.update_layout(
+            barmode="group",
+            height=420,
+            yaxis=dict(title="Order Count"),
+            yaxis2=dict(
+                title=dict(text="Fuel Cost (₦)", font=dict(color=BRAND["green"])),
+                overlaying="y",
+                side="right",
+                tickfont=dict(color=BRAND["green"]),
+            ),
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=1, xanchor="right"),
+        )
+        st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
 # ============================================================================
 # TAB 2: WoW / MoM KPI COMPARISON
@@ -1435,6 +1543,9 @@ if selected_page == "🚛 Vehicles & Order Count":
             veh_summary["Fulfillment_Rate"] = (
                 veh_summary["Delivered_Orders"] / veh_summary["Orders_Dispatched"] * 100
             ).round(1)
+            veh_summary["Coverage Area"] = veh_summary["Vehicle Plate No"].map(
+                lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned")
+            )
 
             render_kpis(
                 [
@@ -1591,6 +1702,12 @@ if selected_page == "⛽ Fueling Cost":
             if c and c in fuel_view.columns
         ]
         display_fuel = fuel_view[table_cols]
+        if col_fuel_plate and col_fuel_plate in display_fuel.columns:
+            display_fuel = display_fuel.assign(
+                **{"Coverage Area": display_fuel[col_fuel_plate].map(
+                    lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned")
+                )}
+            )
         if col_fuel_date and col_fuel_date in display_fuel.columns:
             display_fuel = display_fuel.sort_values(col_fuel_date, ascending=False)
         st.dataframe(display_fuel, use_container_width=True, hide_index=True, height=500)
