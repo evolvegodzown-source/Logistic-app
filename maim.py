@@ -1,7 +1,6 @@
 import io
 import textwrap
 from datetime import datetime
-from datetime import time as dt_time
 import numpy as np
 import pandas as pd
 import plotly.express as px
@@ -49,8 +48,6 @@ THEME = {
     "plot_bg": "#FFFFFF",
     "accent_soft": "rgba(22,134,217,.12)",
 }
-
-YEAR_FILTER = 2026  # All analysis is restricted to this year
 
 st.markdown(
     f"""
@@ -726,51 +723,20 @@ def find_col(df, candidates, exact_caps_only=False):
                 return col
     return None
 
-def _time_to_str(v):
-    """
-    Turn Excel time cells into a 'HH:MM:SS' string.
-    Handles: float fractions of a day (Excel time format), datetime.time objects,
-    datetime/Timestamp values, and strings ('20:33', '8:15 PM', '20:33:00').
-    """
-    if v is None or pd.isna(v):
-        return "00:00:00"
-    if isinstance(v, pd.Timestamp):
-        return v.strftime("%H:%M:%S")
-    if isinstance(v, dt_time):
-        return v.strftime("%H:%M:%S")
-    if isinstance(v, datetime):
-        return v.strftime("%H:%M:%S")
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        # Excel stores times as a fraction of a day (0.5 = 12:00)
-        secs = int(round((float(v) % 1) * 86400))
-        return f"{secs // 3600:02d}:{(secs % 3600) // 60:02d}:{secs % 60:02d}"
-    s = str(v).strip()
-    if s.lower() in ("", "nan", "none", "nat", "<nat>"):
-        return "00:00:00"
-    for fmt in ("%H:%M:%S", "%H:%M", "%I:%M:%S %p", "%I:%M %p"):
-        try:
-            return datetime.strptime(s.upper(), fmt).strftime("%H:%M:%S")
-        except ValueError:
-            continue
-    return "00:00:00"
-
 def build_timestamp(data_df, date_c, time_c):
-    """Combine a date column and a time column into a datetime64 series.
-
-    Robust against Excel float times, time objects, 12h strings, and blank cells.
-    Falls back to the bare date (midnight) when the time part fails to parse.
-    """
     if not date_c or date_c not in data_df.columns:
         return pd.Series(pd.NaT, index=data_df.index)
     dates = pd.to_datetime(data_df[date_c], errors="coerce")
     if time_c and time_c in data_df.columns:
-        times = data_df[time_c].map(_time_to_str)
+        times = (
+            data_df[time_c]
+            .astype(str)
+            .str.strip()
+            .replace(["nan", "None", "<NaT>", ""], "00:00:00")
+        )
         combined = dates.dt.strftime("%Y-%m-%d") + " " + times
-        ts = pd.to_datetime(combined, errors="coerce")
-    else:
-        ts = dates
-    # Rows with a valid date but failed time parse still get the date (midnight)
-    return ts.fillna(dates)
+        return pd.to_datetime(combined, errors="coerce")
+    return dates
 
 # ----------------------------------------------------------------------------
 # KPI PERIOD-COMPARISON HELPERS (WoW / MoM)
@@ -971,7 +937,7 @@ col_vehicle = find_col(df_raw, ["Vehicle Plate No", "Plate Number", "Plate No", 
 col_order_type = find_col(df_raw, ["Order Type", "Type", "Category"])
 col_ship = find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"])
 col_dispatch_time = find_col(df_raw, ["Dispatch Time", "Ship Time", "Time Dispatched"])
-col_deliv = find_col(df_raw, ["Delivery Date", "Delivered Date", "Date Delivered", "Actual Delivery Date", "Delivered On"])
+col_deliv = find_col(df_raw, ["Delivery Date", "Delivered Date"])
 col_delivery_time = find_col(df_raw, ["Delivery Time", "Time Delivered"])
 
 if not col_client:
@@ -998,8 +964,6 @@ if col_date and col_date in df.columns:
     df["Month"] = df[col_date].dt.month.fillna(0).astype(int)
     df["Month Label"] = df[col_date].dt.strftime("%B %Y").fillna("Unassigned Date")
     df["Week Label"] = "W" + df["Week"].astype(str).str.zfill(2) + " - " + df["Year"].astype(str)
-    # ---- YEAR FILTER: keep analysis year only ----
-    df = df[df["Year"] == YEAR_FILTER].copy()
 else:
     df["Month Label"] = "Unassigned Date"
     df["Week Label"] = "Unassigned Date"
@@ -1024,17 +988,6 @@ df["Shipping_TAT"] = df["Shipping_TAT"].apply(
     lambda x: x if pd.notna(x) and x >= 0 else np.nan
 )
 
-# TAT diagnostics — expand this in the app if any TAT still shows N/A
-with st.expander("🔧 TAT field diagnostics"):
-    d1, d2, d3 = st.columns(3)
-    d1.metric("Created_DT parsed", f"{df['Created_DT'].notna().sum():,}")
-    d2.metric("Dispatch_DT parsed", f"{df['Dispatch_DT'].notna().sum():,}")
-    d3.metric("Delivery_DT parsed", f"{df['Delivery_DT'].notna().sum():,}")
-    st.caption(
-        f"Delivery date column: {col_deliv!r} · Delivery time column: {col_delivery_time!r} · "
-        f"Rows with non-null TAT: {df['Creation_Delivery_TAT'].notna().sum():,}"
-    )
-
 # Status mapping strictly tied to the STATUS column
 if col_status and col_status in df.columns:
     df[col_status] = df[col_status].astype(str).str.strip().str.title()
@@ -1048,11 +1001,6 @@ else:
 # FUEL SHEET PROCESSING (Fueling Cost tab)
 # ----------------------------------------------------------------------------
 fuel = None
-col_fuel_date = None
-col_fuel_cost = None
-col_fuel_captain = None
-col_fuel_plate = None
-col_fuel_model = None
 if fuel_raw is not None and not fuel_raw.empty:
     fuel = fuel_raw.copy()
     fuel.columns = [str(c).strip() for c in fuel.columns]
@@ -1065,11 +1013,9 @@ if fuel_raw is not None and not fuel_raw.empty:
     col_fuel_model = find_col(fuel, ["Model", "Vehicle Model"])
 
     if col_fuel_date and col_fuel_date in fuel.columns:
-        fuel[col_fuel_date] = pd.to_datetime(fuel[col_fuel_date], errors="coerce").dt.normalize()
+        fuel[col_fuel_date] = pd.to_datetime(fuel[col_fuel_date], errors="coerce")
         fuel["Fuel Month Label"] = fuel[col_fuel_date].dt.strftime("%B %Y").fillna("Unassigned Date")
         fuel["Fuel Year"] = fuel[col_fuel_date].dt.year
-        # ---- YEAR FILTER ----
-        fuel = fuel[fuel["Fuel Year"] == YEAR_FILTER].copy()
         fuel["Fuel Week"] = fuel[col_fuel_date].dt.isocalendar().week.astype(int)
         fuel["Fuel Week Label"] = (
             "W" + fuel["Fuel Week"].astype(str).str.zfill(2) + " - " + fuel["Fuel Year"].astype(str)
@@ -1114,13 +1060,8 @@ col_repair_cost = None
 col_engine_cost = None
 if repairs_raw is not None and not repairs_raw.empty:
     repairs = repairs_raw.copy()
-    # The Repairs sheet can also ship with its real header on the first data row
-    if repairs.columns.astype(str).str.startswith("Unnamed").mean() > 0.5:
-        repairs.columns = [str(c).strip() for c in repairs.iloc[0]]
-        repairs = repairs.iloc[1:].reset_index(drop=True)
-    else:
-        repairs.columns = [str(c).strip() for c in repairs.columns]
-    col_repair_date = find_col(repairs, ["DATE", "Date", "Repair Date", "Servicing Date"])
+    repairs.columns = [str(c).strip() for c in repairs.columns]
+    col_repair_date = find_col(repairs, ["Date", "DATE"])
     col_repair_plate = find_col(repairs, ["PLATENUMBER", "PlateNumber", "Plate Number", "Plate No"])
     col_repair_area = find_col(repairs, ["AREA COVERED", "Area Covered", "Coverage Area", "Coverage"])
     col_repair_cost = find_col(
@@ -1137,12 +1078,9 @@ if repairs_raw is not None and not repairs_raw.empty:
     )
 
     if col_repair_date and col_repair_date in repairs.columns:
-        # .dt.normalize() strips any time component so label matching works
-        repairs[col_repair_date] = pd.to_datetime(repairs[col_repair_date], errors="coerce").dt.normalize()
+        repairs[col_repair_date] = pd.to_datetime(repairs[col_repair_date], errors="coerce")
         repairs["Repair Month Label"] = repairs[col_repair_date].dt.strftime("%B %Y").fillna("Unassigned Date")
         repairs["Repair Year"] = repairs[col_repair_date].dt.year
-        # ---- YEAR FILTER ----
-        repairs = repairs[repairs["Repair Year"] == YEAR_FILTER].copy()
         repairs["Repair Week"] = repairs[col_repair_date].dt.isocalendar().week.astype(int)
         repairs["Repair Week Label"] = (
             "W" + repairs["Repair Week"].astype(str).str.zfill(2) + " - " + repairs["Repair Year"].astype(str)
@@ -1192,7 +1130,7 @@ st.markdown(
         <div class="hero-top">
             <img class="hero-logo" src="{COVER_LOGO_URL}" alt="DrugStoc logo"/>
             <div>
-                <div class="eyebrow">Healthcare Supply Chain Monitor · {YEAR_FILTER}</div>
+                <div class="eyebrow">Healthcare Supply Chain Monitor</div>
                 <div class="hero-title">DrugStoc Pharma Logistics Dashboard</div>
                 <div class="hero-subtitle">
                     Executive visibility across order fulfillment, delivery turnaround,
