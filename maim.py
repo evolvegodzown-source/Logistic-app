@@ -23,6 +23,7 @@ st.set_page_config(
 # ----------------------------------------------------------------------------
 DATA_PATH = r"https://drugstock-my.sharepoint.com/:x:/g/personal/it_drugstoc_com/IQA5yp0kdh82Ra7YcCr-be0vAXufIjkPsYHD4yoBbt6byhs?e=MFF4su&download=1"
 COVER_LOGO_URL = r"https://drugstock-my.sharepoint.com/:i:/g/personal/it_drugstoc_com/IQCURjcRKFhMQ4HunFjm4IxrAfQqHn3s3TDz3jUrWgzgw5g?e=dNiGIh&download=1"
+FILTER_YEAR = 2026
 BRAND = {
     "blue": "#1686D9",
     "blue_dark": "#0B5FA5",
@@ -888,7 +889,15 @@ def load_data(path=DATA_PATH):
         (s for n, s in all_sheets.items() if "repair" in str(n).lower() and "servic" in str(n).lower()),
         None,
     )
-    return combined_df, fuel_sheet, assets_sheet, repairs_sheet
+    # The orders pipeline must use the shipment sheet alone: concatenating the
+    # other sheets lets their columns (e.g. the Repairs sheet's "Date") shadow
+    # the shipment columns during automatic column mapping.
+    orders_sheet = next(
+        (s for n, s in all_sheets.items() if "shipment" in str(n).lower()),
+        None,
+    )
+    orders_df = orders_sheet if orders_sheet is not None else combined_df
+    return combined_df, fuel_sheet, assets_sheet, repairs_sheet, orders_df
 
 # ----------------------------------------------------------------------------
 # SIDEBAR HEADER & REFRESH BUTTON
@@ -912,7 +921,7 @@ if st.sidebar.button("🔄 Refresh Data"):
 # ----------------------------------------------------------------------------
 try:
     with st.spinner("🔄 Refreshing live logistics data..."):
-        df_raw, fuel_raw, assets_raw, repairs_raw = load_data(DATA_PATH)
+        _combined, fuel_raw, assets_raw, repairs_raw, df_raw = load_data(DATA_PATH)
 except Exception as exc:
     st.error("Unable to load the logistics workbook.")
     st.info("Verify the live link contains valid Excel tables.")
@@ -929,6 +938,7 @@ col_so = find_col(df_raw, ["SO", "Sales Order", "SO Number"])
 col_value = find_col(df_raw, ["Order Value", "Value", "Amount", "Sales Value", "Total Value"])
 col_qty = find_col(df_raw, ["N0 OF CTN'S", "NO OF CTN'S", "Qty CTN", "Quantity", "CTN"])
 col_date = find_col(df_raw, ["Date Column", "Date", "Created Date", "Creation Date", "Order Date"])
+col_created_date = find_col(df_raw, ["Created Date", "Created At", "Creation Date", "Order Created At"])
 col_create_time = find_col(df_raw, ["Created Time", "Creation Time", "Order Time"])
 col_region = find_col(df_raw, ["Region", "Zone", "State", "Territory"])
 col_status = find_col(df_raw, ["STATUS"], exact_caps_only=True) or find_col(df_raw, ["STATUS"])
@@ -970,7 +980,7 @@ else:
 
 df[col_value] = pd.to_numeric(df[col_value], errors="coerce").fillna(0)
 df[col_qty] = pd.to_numeric(df[col_qty], errors="coerce").fillna(0)
-df["Created_DT"] = build_timestamp(df, col_date, col_create_time)
+df["Created_DT"] = build_timestamp(df, col_created_date or col_date, col_create_time)
 df["Delivery_DT"] = build_timestamp(df, col_deliv, col_delivery_time)
 dispatch_date_col = col_ship if col_ship and col_ship in df.columns else col_date
 df["Dispatch_DT"] = build_timestamp(df, dispatch_date_col, col_dispatch_time)
@@ -997,6 +1007,9 @@ else:
     df[col_status] = "Unassigned"
     df["Is Delivered"] = False
 
+if col_date and col_date in df.columns:
+    df = df.loc[df[col_date].dt.year == FILTER_YEAR].copy()
+
 # ----------------------------------------------------------------------------
 # FUEL SHEET PROCESSING (Fueling Cost tab)
 # ----------------------------------------------------------------------------
@@ -1020,6 +1033,7 @@ if fuel_raw is not None and not fuel_raw.empty:
         fuel["Fuel Week Label"] = (
             "W" + fuel["Fuel Week"].astype(str).str.zfill(2) + " - " + fuel["Fuel Year"].astype(str)
         )
+        fuel = fuel.loc[fuel[col_fuel_date].dt.year == FILTER_YEAR].copy()
     if col_fuel_cost and col_fuel_cost in fuel.columns:
         fuel[col_fuel_cost] = pd.to_numeric(fuel[col_fuel_cost], errors="coerce")
 
@@ -1085,6 +1099,7 @@ if repairs_raw is not None and not repairs_raw.empty:
         repairs["Repair Week Label"] = (
             "W" + repairs["Repair Week"].astype(str).str.zfill(2) + " - " + repairs["Repair Year"].astype(str)
         )
+        repairs = repairs.loc[repairs[col_repair_date].dt.year == FILTER_YEAR].copy()
     for cost_col in (col_repair_cost, col_engine_cost):
         if cost_col and cost_col in repairs.columns:
             repairs[cost_col] = pd.to_numeric(repairs[cost_col], errors="coerce")
@@ -1103,18 +1118,24 @@ if repairs_raw is not None and not repairs_raw.empty:
 # ----------------------------------------------------------------------------
 # FILTER OPTIONS (rendered as a top filter bar below the hero)
 # ----------------------------------------------------------------------------
-month_options = ["All Months"]
-if {"Year", "Month"}.issubset(df.columns):
-    month_sorted = (
-        df.dropna(subset=["Month Label"])
-        .drop_duplicates("Month Label")[["Month Label", "Year", "Month"]]
-        .sort_values(["Year", "Month"], ascending=False)
-    )
-    month_options += month_sorted["Month Label"].tolist()
-else:
-    month_options += sorted(df["Month Label"].dropna().unique().tolist(), reverse=True)
+month_labels = set(df["Month Label"].dropna().astype(str))
+week_labels = set(df["Week Label"].dropna().astype(str))
+for date_view, month_label_col, week_label_col in (
+    (fuel, "Fuel Month Label", "Fuel Week Label"),
+    (repairs, "Repair Month Label", "Repair Week Label"),
+):
+    if date_view is not None:
+        if month_label_col in date_view.columns:
+            month_labels.update(date_view[month_label_col].dropna().astype(str))
+        if week_label_col in date_view.columns:
+            week_labels.update(date_view[week_label_col].dropna().astype(str))
 
-week_options = ["All Weeks"] + sorted(df["Week Label"].dropna().unique().tolist(), reverse=True)
+month_options = ["All Months"] + sorted(
+    month_labels,
+    key=lambda label: pd.to_datetime(label, format="%B %Y", errors="coerce"),
+    reverse=True,
+)
+week_options = ["All Weeks"] + sorted(week_labels, reverse=True)
 region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).unique().tolist(), reverse=True)
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist(), reverse=True)
 order_type_options = ["All Order Types"]
