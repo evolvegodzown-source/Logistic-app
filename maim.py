@@ -1244,13 +1244,13 @@ if fuel_view is not None:
 PAGES = [
     "📊 Executive Overview",
     "📈 WoW / MoM Comparison",
-    "💡 Recommendations",
     "🚛 Vehicles & Order Count",
     "⛽ Fueling Cost",
     "🧑‍✈️ Captain Efficiency",
     "🗂️ Audit Data",
     "🛠️ Asset Management",
     "💰 Cost Control",
+    "💡 Recommendations",
 ]
 
 selected_page = st.sidebar.radio(
