@@ -1164,6 +1164,18 @@ if selected_page == "📊 Executive Overview":
             top_plate = plate_totals.idxmax()
             top_plate_cost = plate_totals.max()
 
+    # Total assets = distinct plate numbers across dispatch records and the Fuel tab
+    asset_plates = set()
+    if col_vehicle:
+        asset_plates |= set(
+            filtered[col_vehicle].dropna().astype(str).str.strip().str.upper().unique()
+        )
+    if fuel_view is not None and col_fuel_plate:
+        asset_plates |= set(
+            fuel_view[col_fuel_plate].dropna().astype(str).str.strip().str.upper().unique()
+        )
+    total_assets = len(asset_plates)
+
     section_header("Operational KPIs")
     render_kpis(
         [
@@ -1219,6 +1231,13 @@ if selected_page == "📊 Executive Overview":
                 ),
                 "⛽",
                 BRAND["green"],
+            ),
+            (
+                "Total Assets",
+                fmt_num(total_assets),
+                "Distinct plate numbers across dispatch records and the Fuel tab.",
+                "🚛",
+                BRAND["blue"],
             ),
         ]
     )
