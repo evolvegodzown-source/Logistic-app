@@ -942,47 +942,15 @@ if fuel_raw is not None and not fuel_raw.empty:
         fuel[col_fuel_cost] = pd.to_numeric(fuel[col_fuel_cost], errors="coerce")
 
 # ----------------------------------------------------------------------------
-# SIDEBAR FILTER PANES
+# FILTER OPTIONS (rendered as a top filter bar below the hero)
 # ----------------------------------------------------------------------------
-st.sidebar.markdown("---")
-st.sidebar.markdown("### 🎛️ Operations Filters")
-
 month_options = ["All Months"] + sorted(df["Month Label"].dropna().unique().tolist())
-selected_month = st.sidebar.selectbox("Month", month_options)
-
 week_options = ["All Weeks"] + sorted(df["Week Label"].dropna().unique().tolist())
-selected_week = st.sidebar.selectbox("Week", week_options)
-
 region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).unique().tolist())
-selected_region = st.sidebar.selectbox("Region / Hub", region_options)
-
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist())
-selected_status = st.sidebar.selectbox("Delivery Status (STATUS)", status_options)
-
 order_type_options = ["All Order Types"]
 if col_order_type and col_order_type in df.columns:
     order_type_options += sorted(df[col_order_type].dropna().astype(str).str.strip().unique().tolist())
-selected_order_type = st.sidebar.selectbox("Order Type", order_type_options)
-
-filtered = df.copy()
-if selected_month != "All Months":
-    filtered = filtered[filtered["Month Label"] == selected_month]
-if selected_week != "All Weeks":
-    filtered = filtered[filtered["Week Label"] == selected_week]
-if selected_region != "All Regions":
-    filtered = filtered[filtered[col_region].astype(str) == selected_region]
-if selected_status != "All Statuses":
-    filtered = filtered[filtered[col_status] == selected_status]
-if selected_order_type != "All Order Types" and col_order_type:
-    filtered = filtered[filtered[col_order_type].astype(str).str.strip() == selected_order_type]
-
-comparison_base = df.copy()
-if selected_region != "All Regions":
-    comparison_base = comparison_base[comparison_base[col_region].astype(str) == selected_region]
-if selected_status != "All Statuses":
-    comparison_base = comparison_base[comparison_base[col_status] == selected_status]
-if selected_order_type != "All Order Types" and col_order_type:
-    comparison_base = comparison_base[comparison_base[col_order_type].astype(str).str.strip() == selected_order_type]
 
 # ----------------------------------------------------------------------------
 # HERO HEADER
@@ -1009,6 +977,50 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# ----------------------------------------------------------------------------
+# TOP FILTER BAR (slicers shared across all tabs)
+# ----------------------------------------------------------------------------
+st.markdown(
+    f"""
+    <div class="section-head" style="margin-top:0">
+        <div class="section-title">🎛️ Filters</div>
+        <div class="section-note">Slicers apply to every tab below</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+f_month, f_week, f_region, f_status, f_type = st.columns(5)
+with f_month:
+    selected_month = st.selectbox("Month", month_options)
+with f_week:
+    selected_week = st.selectbox("Week", week_options)
+with f_region:
+    selected_region = st.selectbox("Region / Hub", region_options)
+with f_status:
+    selected_status = st.selectbox("Delivery Status (STATUS)", status_options)
+with f_type:
+    selected_order_type = st.selectbox("Order Type", order_type_options)
+
+filtered = df.copy()
+if selected_month != "All Months":
+    filtered = filtered[filtered["Month Label"] == selected_month]
+if selected_week != "All Weeks":
+    filtered = filtered[filtered["Week Label"] == selected_week]
+if selected_region != "All Regions":
+    filtered = filtered[filtered[col_region].astype(str) == selected_region]
+if selected_status != "All Statuses":
+    filtered = filtered[filtered[col_status] == selected_status]
+if selected_order_type != "All Order Types" and col_order_type:
+    filtered = filtered[filtered[col_order_type].astype(str).str.strip() == selected_order_type]
+
+comparison_base = df.copy()
+if selected_region != "All Regions":
+    comparison_base = comparison_base[comparison_base[col_region].astype(str) == selected_region]
+if selected_status != "All Statuses":
+    comparison_base = comparison_base[comparison_base[col_status] == selected_status]
+if selected_order_type != "All Order Types" and col_order_type:
+    comparison_base = comparison_base[comparison_base[col_order_type].astype(str).str.strip() == selected_order_type]
 
 tab_overview, tab_compare, tab_vehicles, tab_fuel, tab_captains, tab_data, tab_assets, tab_cost = st.tabs(
     [
