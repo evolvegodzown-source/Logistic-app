@@ -537,24 +537,52 @@ def money(value):
 def fmt_num(value):
     return f"{value:,.0f}"
 
+def sun_sat_week(dates):
+    """Week number and week-start (Sunday) for a datetime Series.
+
+    Weeks run Sunday-Saturday; numbering follows strftime %U so labels like
+    'W40 - 2026' round-trip through week_start_from_label().
+    """
+    week_start = dates - pd.to_timedelta((dates.dt.weekday + 1) % 7, unit="D")
+    week_num = pd.to_numeric(week_start.dt.strftime("%U"), errors="coerce")
+    return week_num, week_start
+
+def week_start_from_label(year, week):
+    """Sunday start date of a Sun-Sat 'Www - yyyy' week label."""
+    jan1 = pd.Timestamp(year=int(year), month=1, day=1)
+    first_sunday = jan1 + pd.Timedelta(days=(6 - jan1.weekday()) % 7)
+    return first_sunday + pd.Timedelta(days=(int(week) - 1) * 7)
+
 def comparison_anchor(data_df):
-    """Anchor date for WoW/MoM: selected week > selected month > latest date."""
+    """Anchor date for WoW/MoM: selected week > selected month > latest date.
+
+    Uses col_date (the same column the Week/Month slicer labels derive from)
+    so the comparison windows line up with the KPI/filter logic.
+    """
+    date_col = col_date if col_date and col_date in data_df.columns else None
     if selected_week != "All Weeks":
         try:
             _wk = int(selected_week[1:3])
             _yr = int(selected_week.split("-")[-1])
-            return pd.Timestamp.fromisocalendar(_yr, _wk, 1)
+            return week_start_from_label(_yr, _wk)
         except (ValueError, TypeError):
             pass
-    if selected_month != "All Months" and "Month Label" in data_df.columns:
-        month_dates = data_df.loc[data_df["Month Label"] == selected_month, "Created_DT"].dropna()
+    if selected_month != "All Months" and "Month Label" in data_df.columns and date_col:
+        month_dates = data_df.loc[data_df["Month Label"] == selected_month, date_col].dropna()
         if not month_dates.empty:
             return month_dates.max()
-    dated = data_df["Created_DT"].dropna()
-    return dated.max() if not dated.empty else None
+    if date_col:
+        dated = data_df[date_col].dropna()
+        return dated.max() if not dated.empty else None
+    return None
 
 def comparison_periods(data_df):
-    dated = data_df["Created_DT"].dropna()
+    # Week/month windows are cut on col_date — the same column behind the
+    # slicer Week/Month labels and the Executive KPIs.
+    date_col = col_date if col_date and col_date in data_df.columns else None
+    if date_col is None:
+        return None
+    dated = data_df[date_col].dropna()
     if dated.empty:
         return None
 
@@ -562,23 +590,23 @@ def comparison_periods(data_df):
     if anchor is None:
         return None
     latest_date = anchor.normalize()
-    current_week_start = latest_date - pd.Timedelta(days=latest_date.weekday())
+    current_week_start = latest_date - pd.Timedelta(days=(latest_date.weekday() + 1) % 7)
     current_month_start = latest_date.replace(day=1)
     previous_month_end = current_month_start - pd.Timedelta(days=1)
     return {
         "WoW": (
-            data_df["Created_DT"].ge(current_week_start)
-            & data_df["Created_DT"].lt(current_week_start + pd.Timedelta(days=7)),
-            data_df["Created_DT"].ge(current_week_start - pd.Timedelta(days=7))
-            & data_df["Created_DT"].lt(current_week_start),
+            data_df[date_col].ge(current_week_start)
+            & data_df[date_col].lt(current_week_start + pd.Timedelta(days=7)),
+            data_df[date_col].ge(current_week_start - pd.Timedelta(days=7))
+            & data_df[date_col].lt(current_week_start),
             (current_week_start, current_week_start + pd.Timedelta(days=7)),
             (current_week_start - pd.Timedelta(days=7), current_week_start),
         ),
         "MoM": (
-            data_df["Created_DT"].ge(current_month_start)
-            & data_df["Created_DT"].lt(current_month_start + pd.offsets.MonthBegin(1)),
-            data_df["Created_DT"].ge(previous_month_end.replace(day=1))
-            & data_df["Created_DT"].lt(current_month_start),
+            data_df[date_col].ge(current_month_start)
+            & data_df[date_col].lt(current_month_start + pd.offsets.MonthBegin(1)),
+            data_df[date_col].ge(previous_month_end.replace(day=1))
+            & data_df[date_col].lt(current_month_start),
             (current_month_start, current_month_start + pd.offsets.MonthBegin(1)),
             (previous_month_end.replace(day=1), current_month_start),
         ),
@@ -586,7 +614,7 @@ def comparison_periods(data_df):
 
 def comparison_metrics(data_df, mask, fuel_bounds=None):
     period = data_df.loc[mask]
-    orders = len(period)
+    orders = int(period[col_client].count()) if col_client and col_client in period.columns else len(period)
     fuel_cost = 0.0
     if fuel_bounds and fuel is not None and col_fuel_date and col_fuel_cost:
         f_start, f_end = fuel_bounds
@@ -761,7 +789,10 @@ def render_performance_trend(data_df):
         )
 
     if date_granularity == "Week":
-        trend_df["Period"] = trend_df["Created_DT"].dt.to_period("W").dt.start_time
+        trend_df["Period"] = (
+            trend_df["Created_DT"]
+            - pd.to_timedelta((trend_df["Created_DT"].dt.weekday + 1) % 7, unit="D")
+        ).dt.normalize()
         period_format = "%d %b %Y"
     else:
         trend_df["Period"] = trend_df["Created_DT"].dt.to_period("M").dt.start_time
@@ -859,8 +890,8 @@ def fuel_cost_between(start, end_exclusive):
     return float(fuel.loc[mask, col_fuel_cost].sum())
 
 def compute_period_kpis(frame):
-    """Compute the 4 core operational KPIs for a given dataframe slice."""
-    orders = int(len(frame))
+    """Compute the core operational KPIs for a given dataframe slice."""
+    orders = int(frame[col_client].count()) if col_client and col_client in frame.columns else len(frame)
     delivered = int(frame["Is Delivered"].sum()) if orders else 0
     fulfil = (delivered / orders * 100.0) if orders else 0.0
     tat_order = frame["Creation_Delivery_TAT"].mean()
@@ -1076,11 +1107,15 @@ df = df_raw.copy()
 # Date handling
 if col_date and col_date in df.columns:
     df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
-    df["Week"] = df[col_date].dt.isocalendar().week.fillna(0).astype(int)
+    _wk_num, _wk_start = sun_sat_week(df[col_date])
+    df["Week"] = _wk_num.fillna(0).astype(int)
     df["Year"] = df[col_date].dt.year.fillna(0).astype(int)
     df["Month"] = df[col_date].dt.month.fillna(0).astype(int)
     df["Month Label"] = df[col_date].dt.strftime("%B %Y").fillna("Unassigned Date")
-    df["Week Label"] = "W" + df["Week"].astype(str).str.zfill(2) + " - " + df["Year"].astype(str)
+    df["Week Label"] = (
+        "W" + df["Week"].astype(str).str.zfill(2)
+        + " - " + _wk_start.dt.year.fillna(0).astype(int).astype(str)
+    )
 else:
     df["Month Label"] = "Unassigned Date"
     df["Week Label"] = "Unassigned Date"
@@ -1137,8 +1172,9 @@ if fuel_raw is not None and not fuel_raw.empty:
     if col_fuel_date and col_fuel_date in fuel.columns:
         fuel[col_fuel_date] = pd.to_datetime(fuel[col_fuel_date], errors="coerce")
         fuel["Fuel Month Label"] = fuel[col_fuel_date].dt.strftime("%B %Y").fillna("Unassigned Date")
-        fuel["Fuel Year"] = fuel[col_fuel_date].dt.year
-        fuel["Fuel Week"] = fuel[col_fuel_date].dt.isocalendar().week.astype(int)
+        _fwk_num, _fwk_start = sun_sat_week(fuel[col_fuel_date])
+        fuel["Fuel Week"] = _fwk_num.fillna(0).astype(int)
+        fuel["Fuel Year"] = _fwk_start.dt.year.fillna(0).astype(int)
         fuel["Fuel Week Label"] = (
             "W" + fuel["Fuel Week"].astype(str).str.zfill(2) + " - " + fuel["Fuel Year"].astype(str)
         )
@@ -1204,8 +1240,9 @@ if repairs_raw is not None and not repairs_raw.empty:
     if col_repair_date and col_repair_date in repairs.columns:
         repairs[col_repair_date] = pd.to_datetime(repairs[col_repair_date], errors="coerce")
         repairs["Repair Month Label"] = repairs[col_repair_date].dt.strftime("%B %Y").fillna("Unassigned Date")
-        repairs["Repair Year"] = repairs[col_repair_date].dt.year
-        repairs["Repair Week"] = repairs[col_repair_date].dt.isocalendar().week.astype(int)
+        _rwk_num, _rwk_start = sun_sat_week(repairs[col_repair_date])
+        repairs["Repair Week"] = _rwk_num.fillna(0).astype(int)
+        repairs["Repair Year"] = _rwk_start.dt.year.fillna(0).astype(int)
         repairs["Repair Week Label"] = (
             "W" + repairs["Repair Week"].astype(str).str.zfill(2) + " - " + repairs["Repair Year"].astype(str)
         )
@@ -1689,15 +1726,15 @@ if selected_page == "📈 WoW / MoM Comparison":
         ref_date = pd.Timestamp.today()
 
     # ------------------------- WEEK BOUNDARIES -------------------------
-    week_start = ref_date - pd.Timedelta(days=int(ref_date.weekday()))
+    week_start = ref_date - pd.Timedelta(days=(int(ref_date.weekday()) + 1) % 7)
     prev_week_start = week_start - pd.Timedelta(days=7)
     prev_week_end = week_start - pd.Timedelta(days=1)
 
     curr_week_df = comp_df[(comp_df[col_date] >= week_start) & (comp_df[col_date] <= ref_date)]
     prev_week_df = comp_df[(comp_df[col_date] >= prev_week_start) & (comp_df[col_date] <= prev_week_end)]
 
-    curr_week_label = f"W{int(week_start.isocalendar().week):02d}"
-    prev_week_label = f"W{int(prev_week_start.isocalendar().week):02d}"
+    curr_week_label = f"W{int(week_start.strftime('%U')):02d}"
+    prev_week_label = f"W{int(prev_week_start.strftime('%U')):02d}"
 
     # ------------------------- MONTH BOUNDARIES ------------------------
     month_start = ref_date.replace(day=1)
