@@ -1,4 +1,6 @@
 import io
+import hmac
+import os
 import textwrap
 from datetime import datetime
 import numpy as np
@@ -7,6 +9,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import requests
 import streamlit as st
+from streamlit.errors import StreamlitSecretNotFoundError
 
 # ----------------------------------------------------------------------------
 # PAGE CONFIG
@@ -33,6 +36,15 @@ BRAND = {
     "amber": "#F59E0B",
     "red": "#EF4444",
 }
+
+def get_login_credentials():
+    try:
+        auth_settings = st.secrets.get("auth", {})
+    except StreamlitSecretNotFoundError:
+        auth_settings = {}
+    username = os.getenv("DASHBOARD_USERNAME") or auth_settings.get("username")
+    password = os.getenv("DASHBOARD_PASSWORD") or auth_settings.get("password")
+    return username, password
 
 # ----------------------------------------------------------------------------
 # THEME (PERMANENT LIGHT MODE)
@@ -436,6 +448,47 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+configured_username, configured_password = get_login_credentials()
+st.session_state.setdefault("dashboard_authenticated", False)
+
+if not st.session_state["dashboard_authenticated"]:
+    st.markdown(
+        "<div style='text-align:center;padding-top:7vh'>"
+        "<div style='font-size:1.8rem;font-weight:700'>DrugStoc Logistics</div>"
+        "<div style='color:#4A6178'>Dashboard sign in</div></div>",
+        unsafe_allow_html=True,
+    )
+    left, center, right = st.columns([1, 1.1, 1])
+    with center:
+        st.image(COVER_LOGO_URL, width=190)
+        if not configured_username or not configured_password:
+            st.error(
+                "Login is not configured. Set DASHBOARD_USERNAME and "
+                "DASHBOARD_PASSWORD or add an [auth] section to Streamlit secrets."
+            )
+        else:
+            with st.form("dashboard_login"):
+                entered_username = st.text_input("Username", key="login_username")
+                entered_password = st.text_input(
+                    "Password", type="password", key="login_password"
+                )
+                submitted = st.form_submit_button(
+                    "Sign in", type="primary", width="stretch"
+                )
+            if submitted:
+                username_matches = hmac.compare_digest(
+                    entered_username, str(configured_username)
+                )
+                password_matches = hmac.compare_digest(
+                    entered_password, str(configured_password)
+                )
+                if username_matches and password_matches:
+                    st.session_state["dashboard_authenticated"] = True
+                    st.session_state["authenticated_user"] = entered_username
+                    st.rerun()
+                st.error("Incorrect username or password.")
+    st.stop()
 
 # ----------------------------------------------------------------------------
 # HELPERS
@@ -911,6 +964,12 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+st.sidebar.caption(f"Signed in as {st.session_state.get('authenticated_user', '')}")
+if st.sidebar.button("Sign out", key="dashboard_sign_out"):
+    st.session_state["dashboard_authenticated"] = False
+    st.session_state.pop("authenticated_user", None)
+    st.rerun()
 
 if st.sidebar.button("🔄 Refresh Data"):
     st.cache_data.clear()
