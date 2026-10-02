@@ -538,20 +538,23 @@ def fmt_num(value):
     return f"{value:,.0f}"
 
 def sun_sat_week(dates):
-    """Week number and week-start (Sunday) for a datetime Series.
+    """Week number, week-start (Sunday) and label-year for a datetime Series.
 
-    Weeks run Sunday-Saturday; numbering follows strftime %U so labels like
-    'W40 - 2026' round-trip through week_start_from_label().
+    Weeks run Sunday-Saturday and are numbered by the ISO week of the week's
+    Thursday, so the week containing 1 Oct 2026 is 'W40 - 2026' and early
+    January 2026 dates are never labelled as 2025. Round-trips through
+    week_start_from_label().
     """
     week_start = dates - pd.to_timedelta((dates.dt.weekday + 1) % 7, unit="D")
-    week_num = pd.to_numeric(week_start.dt.strftime("%U"), errors="coerce")
-    return week_num, week_start
+    thursday = week_start + pd.Timedelta(days=4)
+    iso = thursday.dt.isocalendar()
+    return iso["week"], week_start, iso["year"]
 
 def week_start_from_label(year, week):
-    """Sunday start date of a Sun-Sat 'Www - yyyy' week label."""
-    jan1 = pd.Timestamp(year=int(year), month=1, day=1)
-    first_sunday = jan1 + pd.Timedelta(days=(6 - jan1.weekday()) % 7)
-    return first_sunday + pd.Timedelta(days=(int(week) - 1) * 7)
+    """Sunday start of the Sun-Sat week numbered (year, week) by its Thursday."""
+    iso_monday = pd.Timestamp.fromisocalendar(int(year), int(week), 1)
+    thursday = iso_monday + pd.Timedelta(days=3)
+    return thursday - pd.Timedelta(days=(int(thursday.weekday()) + 1) % 7)
 
 def comparison_anchor(data_df):
     """Anchor date for WoW/MoM: selected week > selected month > latest date.
@@ -1107,14 +1110,14 @@ df = df_raw.copy()
 # Date handling
 if col_date and col_date in df.columns:
     df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
-    _wk_num, _wk_start = sun_sat_week(df[col_date])
+    _wk_num, _wk_start, _wk_year = sun_sat_week(df[col_date])
     df["Week"] = _wk_num.fillna(0).astype(int)
     df["Year"] = df[col_date].dt.year.fillna(0).astype(int)
     df["Month"] = df[col_date].dt.month.fillna(0).astype(int)
     df["Month Label"] = df[col_date].dt.strftime("%B %Y").fillna("Unassigned Date")
     df["Week Label"] = (
         "W" + df["Week"].astype(str).str.zfill(2)
-        + " - " + _wk_start.dt.year.fillna(0).astype(int).astype(str)
+        + " - " + _wk_year.fillna(0).astype(int).astype(str)
     )
 else:
     df["Month Label"] = "Unassigned Date"
@@ -1172,11 +1175,11 @@ if fuel_raw is not None and not fuel_raw.empty:
     if col_fuel_date and col_fuel_date in fuel.columns:
         fuel[col_fuel_date] = pd.to_datetime(fuel[col_fuel_date], errors="coerce")
         fuel["Fuel Month Label"] = fuel[col_fuel_date].dt.strftime("%B %Y").fillna("Unassigned Date")
-        _fwk_num, _fwk_start = sun_sat_week(fuel[col_fuel_date])
+        _fwk_num, _fwk_start, _fwk_year = sun_sat_week(fuel[col_fuel_date])
         fuel["Fuel Week"] = _fwk_num.fillna(0).astype(int)
-        fuel["Fuel Year"] = _fwk_start.dt.year.fillna(0).astype(int)
         fuel["Fuel Week Label"] = (
-            "W" + fuel["Fuel Week"].astype(str).str.zfill(2) + " - " + fuel["Fuel Year"].astype(str)
+            "W" + fuel["Fuel Week"].astype(str).str.zfill(2)
+            + " - " + _fwk_year.fillna(0).astype(int).astype(str)
         )
         fuel = fuel.loc[fuel[col_fuel_date].dt.year == FILTER_YEAR].copy()
     if col_fuel_cost and col_fuel_cost in fuel.columns:
@@ -1240,11 +1243,11 @@ if repairs_raw is not None and not repairs_raw.empty:
     if col_repair_date and col_repair_date in repairs.columns:
         repairs[col_repair_date] = pd.to_datetime(repairs[col_repair_date], errors="coerce")
         repairs["Repair Month Label"] = repairs[col_repair_date].dt.strftime("%B %Y").fillna("Unassigned Date")
-        _rwk_num, _rwk_start = sun_sat_week(repairs[col_repair_date])
+        _rwk_num, _rwk_start, _rwk_year = sun_sat_week(repairs[col_repair_date])
         repairs["Repair Week"] = _rwk_num.fillna(0).astype(int)
-        repairs["Repair Year"] = _rwk_start.dt.year.fillna(0).astype(int)
         repairs["Repair Week Label"] = (
-            "W" + repairs["Repair Week"].astype(str).str.zfill(2) + " - " + repairs["Repair Year"].astype(str)
+            "W" + repairs["Repair Week"].astype(str).str.zfill(2)
+            + " - " + _rwk_year.fillna(0).astype(int).astype(str)
         )
         repairs = repairs.loc[repairs[col_repair_date].dt.year == FILTER_YEAR].copy()
     for cost_col in (col_repair_cost, col_engine_cost):
@@ -1733,8 +1736,8 @@ if selected_page == "📈 WoW / MoM Comparison":
     curr_week_df = comp_df[(comp_df[col_date] >= week_start) & (comp_df[col_date] <= ref_date)]
     prev_week_df = comp_df[(comp_df[col_date] >= prev_week_start) & (comp_df[col_date] <= prev_week_end)]
 
-    curr_week_label = f"W{int(week_start.strftime('%U')):02d}"
-    prev_week_label = f"W{int(prev_week_start.strftime('%U')):02d}"
+    curr_week_label = f"W{int((week_start + pd.Timedelta(days=4)).isocalendar()[1]):02d}"
+    prev_week_label = f"W{int((prev_week_start + pd.Timedelta(days=4)).isocalendar()[1]):02d}"
 
     # ------------------------- MONTH BOUNDARIES ------------------------
     month_start = ref_date.replace(day=1)
