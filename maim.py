@@ -537,12 +537,31 @@ def money(value):
 def fmt_num(value):
     return f"{value:,.0f}"
 
+def comparison_anchor(data_df):
+    """Anchor date for WoW/MoM: selected week > selected month > latest date."""
+    if selected_week != "All Weeks":
+        try:
+            _wk = int(selected_week[1:3])
+            _yr = int(selected_week.split("-")[-1])
+            return pd.Timestamp.fromisocalendar(_yr, _wk, 1)
+        except (ValueError, TypeError):
+            pass
+    if selected_month != "All Months" and "Month Label" in data_df.columns:
+        month_dates = data_df.loc[data_df["Month Label"] == selected_month, "Created_DT"].dropna()
+        if not month_dates.empty:
+            return month_dates.max()
+    dated = data_df["Created_DT"].dropna()
+    return dated.max() if not dated.empty else None
+
 def comparison_periods(data_df):
     dated = data_df["Created_DT"].dropna()
     if dated.empty:
         return None
 
-    latest_date = dated.max().normalize()
+    anchor = comparison_anchor(data_df)
+    if anchor is None:
+        return None
+    latest_date = anchor.normalize()
     current_week_start = latest_date - pd.Timedelta(days=latest_date.weekday())
     current_month_start = latest_date.replace(day=1)
     previous_month_end = current_month_start - pd.Timedelta(days=1)
@@ -569,10 +588,10 @@ def comparison_metrics(data_df, mask, fuel_bounds=None):
     period = data_df.loc[mask]
     orders = len(period)
     fuel_cost = 0.0
-    if fuel_bounds and fuel_view is not None and col_fuel_date and col_fuel_cost:
+    if fuel_bounds and fuel is not None and col_fuel_date and col_fuel_cost:
         f_start, f_end = fuel_bounds
-        f_mask = (fuel_view[col_fuel_date] >= f_start) & (fuel_view[col_fuel_date] < f_end)
-        fuel_cost = float(fuel_view.loc[f_mask, col_fuel_cost].sum())
+        f_mask = (fuel[col_fuel_date] >= f_start) & (fuel[col_fuel_date] < f_end)
+        fuel_cost = float(fuel.loc[f_mask, col_fuel_cost].sum())
     return {
         "Order Volume": float(orders),
         "Fulfillment Rate": float(period["Is Delivered"].mean() * 100) if orders else 0.0,
@@ -833,11 +852,11 @@ COMPARE_KPIS = [
 ]
 
 def fuel_cost_between(start, end_exclusive):
-    """Total fuel cost within a date window from the (slicer-filtered) Fuel tab."""
-    if fuel_view is None or not col_fuel_date or not col_fuel_cost:
+    """Total fuel cost within a date window from the Fuel tab (year-filtered)."""
+    if fuel is None or not col_fuel_date or not col_fuel_cost:
         return 0.0
-    mask = (fuel_view[col_fuel_date] >= start) & (fuel_view[col_fuel_date] < end_exclusive)
-    return float(fuel_view.loc[mask, col_fuel_cost].sum())
+    mask = (fuel[col_fuel_date] >= start) & (fuel[col_fuel_date] < end_exclusive)
+    return float(fuel.loc[mask, col_fuel_cost].sum())
 
 def compute_period_kpis(frame):
     """Compute the 4 core operational KPIs for a given dataframe slice."""
@@ -1520,12 +1539,9 @@ if selected_page == "📊 Executive Overview":
         "Week-on-Week & Month-on-Month Performance",
         "Green indicates improvement, red indicates decline. For TAT metrics the colours are reversed — a decrease in turnaround time is green.",
     )
-    overview_comp = comparison_base.copy()
-    if selected_month != "All Months":
-        overview_comp = overview_comp[overview_comp["Month Label"] == selected_month]
-    if selected_week != "All Weeks":
-        overview_comp = overview_comp[overview_comp["Week Label"] == selected_week]
-    render_comparison_section(overview_comp)
+    # WoW/MoM anchored to the selected week/month (or the latest week when
+    # filters are cleared); previous periods resolve against comparison_base
+    render_comparison_section(comparison_base)
 
     section_header("Performance Trend", "Track fulfillment and delivery turnaround over time.")
     render_performance_trend(filtered)
@@ -1658,15 +1674,16 @@ if selected_page == "📈 WoW / MoM Comparison":
         "Pie-chart share comparison across the core operational KPIs plus fuel cost",
     )
 
-    # Comparison base respects the sidebar slicers (Month/Week on top of Region/Status/Order Type)
+    # Comparison base respects Region/Status/Order Type slicers; the period
+    # anchor comes from the selected Week/Month so the previous period
+    # (which falls outside the selection) still has data to compare against.
     comp_df = comparison_base.copy()
-    if selected_month != "All Months":
-        comp_df = comp_df[comp_df["Month Label"] == selected_month]
-    if selected_week != "All Weeks":
-        comp_df = comp_df[comp_df["Week Label"] == selected_week]
 
-    # Reference date = latest available order date in the filtered dataset
-    if col_date and col_date in comp_df.columns and comp_df[col_date].notna().any():
+    # Reference date: selected week > latest date of selected month > latest data
+    anchor = comparison_anchor(comp_df)
+    if anchor is not None:
+        ref_date = anchor
+    elif col_date and col_date in comp_df.columns and comp_df[col_date].notna().any():
         ref_date = comp_df[col_date].max()
     else:
         ref_date = pd.Timestamp.today()
