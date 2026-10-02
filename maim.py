@@ -1328,6 +1328,23 @@ if selected_page == "📊 Executive Overview":
     delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
     avg_creation_to_deliv_tat = filtered["Creation_Delivery_TAT"].mean()
     avg_shipping_tat = filtered["Shipping_TAT"].mean()
+
+    # Contract: order-to-delivery TAT must be within 24 hrs
+    CONTRACT_TAT_HOURS = 24.0
+    if pd.notna(avg_creation_to_deliv_tat):
+        tat_within_contract = avg_creation_to_deliv_tat <= CONTRACT_TAT_HOURS
+        tat_diff = avg_creation_to_deliv_tat - CONTRACT_TAT_HOURS
+        tat_status_color = BRAND["green"] if tat_within_contract else BRAND["red"]
+        tat_contract_accent = tat_status_color
+        tat_contract_desc = (
+            f"Contract: {CONTRACT_TAT_HOURS:.0f} hrs · "
+            f"<strong style='color:{tat_status_color}'>"
+            f"{'Under' if tat_within_contract else 'Exceeded'} by {abs(tat_diff):.1f} hrs"
+            f"</strong>"
+        )
+    else:
+        tat_contract_accent = BRAND["amber"]
+        tat_contract_desc = "Average time from order creation to delivery."
     total_ctns = filtered[col_qty].sum()
     avg_order_value = total_value / total_orders if total_orders else 0
     facilities = filtered[col_client].nunique()
@@ -1404,9 +1421,9 @@ if selected_page == "📊 Executive Overview":
             (
                 "Order → Delivery TAT",
                 f"{avg_creation_to_deliv_tat:.1f} hrs" if pd.notna(avg_creation_to_deliv_tat) else "N/A",
-                "Average time from order creation to delivery.",
+                tat_contract_desc,
                 "⏱",
-                BRAND["amber"],
+                tat_contract_accent,
             ),
             (
                 "Dispatch → Delivery TAT",
