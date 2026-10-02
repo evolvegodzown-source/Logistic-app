@@ -1,3 +1,4 @@
+import base64
 import io
 import hmac
 import os
@@ -453,6 +454,34 @@ configured_username, configured_password = get_login_credentials()
 st.session_state.setdefault("dashboard_authenticated", False)
 
 if not st.session_state["dashboard_authenticated"]:
+    _login_bg_path = os.path.join(os.path.dirname(__file__), "login_bg.png")
+    try:
+        with open(_login_bg_path, "rb") as _bg_file:
+            _login_bg_b64 = base64.b64encode(_bg_file.read()).decode("ascii")
+    except OSError:
+        _login_bg_b64 = ""
+    if _login_bg_b64:
+        st.markdown(
+            f"""
+            <style>
+                .stApp {{
+                    background-image: url("data:image/png;base64,{_login_bg_b64}");
+                    background-size: cover;
+                    background-position: center;
+                    background-repeat: no-repeat;
+                }}
+                [data-testid="stFormSubmitButton"] button,
+                [data-testid="stFormSubmitButton"] button:hover,
+                .stForm button[kind="primary"],
+                .stForm button[kind="primary"]:hover {{
+                    background-color: #1686D9 !important;
+                    border-color: #1686D9 !important;
+                    color: #FFFFFF !important;
+                }}
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
     st.markdown(
         "<div style='text-align:center;padding-top:7vh'>"
         "<div style='font-size:1.8rem;font-weight:700'>DrugStoc Logistics</div>"
