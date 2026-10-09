@@ -253,6 +253,7 @@ COMPARE_KPIS = [
     "Fulfilment Rate",
     "TAT: Order to Delivery",
     "TAT: Dispatch to Delivery",
+    "TAT: Invoice to Dispatch",
     "Fuel Cost",
 ]
 
@@ -317,11 +318,13 @@ def compute_period_kpis(frame, col_client):
     fulfil = (delivered / orders * 100.0) if orders else 0.0
     tat_order = frame["Creation_Delivery_TAT"].mean()
     tat_dispatch = frame["Shipping_TAT"].mean()
+    tat_invoice_dispatch = frame["Invoice_Dispatch_TAT"].mean()
     return {
         "Order Volume": float(orders),
         "Fulfilment Rate": float(fulfil),
         "TAT: Order to Delivery": float(tat_order) if pd.notna(tat_order) else 0.0,
         "TAT: Dispatch to Delivery": float(tat_dispatch) if pd.notna(tat_dispatch) else 0.0,
+        "TAT: Invoice to Dispatch": float(tat_invoice_dispatch) if pd.notna(tat_invoice_dispatch) else 0.0,
     }
 
 
@@ -423,9 +426,10 @@ def render_comparison_section(data_df, fuel_df, col_date, col_client, col_fuel_d
         "Fulfilment Rate",
         "TAT: Order to Delivery",
         "TAT: Dispatch to Delivery",
+        "TAT: Invoice to Dispatch",
         "Fuel Cost",
     ]
-    lower_is_better = ("TAT: Order to Delivery", "TAT: Dispatch to Delivery")
+    lower_is_better = ("TAT: Order to Delivery", "TAT: Dispatch to Delivery", "TAT: Invoice to Dispatch")
     for comparison_name, (current_mask, previous_mask, curr_bounds, prev_bounds) in periods.items():
         current = compute_period_kpis(data_df.loc[current_mask], col_client)
         previous = compute_period_kpis(data_df.loc[previous_mask], col_client)
@@ -476,7 +480,7 @@ def render_performance_trend(data_df):
     with control_metric:
         metric_label = st.selectbox(
             "Metric",
-            ["Fulfillment", "TAT: Creation to Delivery", "TAT: Dispatch to Delivery"],
+            ["Fulfillment", "TAT: Creation to Delivery", "TAT: Dispatch to Delivery", "TAT: Invoice to Dispatch"],
             key="performance_trend_metric",
         )
     if date_granularity == "Week":
@@ -492,6 +496,7 @@ def render_performance_trend(data_df):
         "Fulfillment": ("Is Delivered", "Fulfillment Rate (%)"),
         "TAT: Creation to Delivery": ("Creation_Delivery_TAT", "Average TAT (hrs)"),
         "TAT: Dispatch to Delivery": ("Shipping_TAT", "Average TAT (hrs)"),
+        "TAT: Invoice to Dispatch": ("Invoice_Dispatch_TAT", "Average TAT (hrs)"),
     }
     value_column, y_axis_title = metric_columns[metric_label]
     trend = (
@@ -1062,6 +1067,7 @@ col_vehicle = find_col(df_raw, ["Vehicle Plate No", "Plate Number", "Plate No", 
 col_order_type = find_col(df_raw, ["Order Type", "Type", "Category"])
 col_ship = find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"])
 col_dispatch_time = find_col(df_raw, ["Dispatch Time", "Ship Time", "Time Dispatched"])
+col_invoice = find_col(df_raw, ["Invoice Date", "Invoiced Date", "INV Date"])
 col_deliv = find_col(df_raw, ["Delivery Date", "Delivered Date"])
 col_delivery_time = find_col(df_raw, ["Delivery Time", "Time Delivered"])
 
@@ -1106,12 +1112,15 @@ df["Created_DT"] = build_timestamp(df, col_created_date or col_date, col_create_
 df["Delivery_DT"] = build_timestamp(df, col_deliv, col_delivery_time)
 dispatch_date_col = col_ship if col_ship and col_ship in df.columns else col_date
 df["Dispatch_DT"] = build_timestamp(df, dispatch_date_col, col_dispatch_time)
+df["Invoice_DT"] = build_timestamp(df, col_invoice, None)
 
 # TAT calculations
 df["Creation_Delivery_TAT"] = ((df["Delivery_DT"] - df["Created_DT"]).dt.total_seconds() / 3600.0)
 df["Creation_Delivery_TAT"] = df["Creation_Delivery_TAT"].apply(lambda x: x if pd.notna(x) and x >= 0 else np.nan)
 df["Shipping_TAT"] = ((df["Delivery_DT"] - df["Dispatch_DT"]).dt.total_seconds() / 3600.0)
 df["Shipping_TAT"] = df["Shipping_TAT"].apply(lambda x: x if pd.notna(x) and x >= 0 else np.nan)
+df["Invoice_Dispatch_TAT"] = ((df["Dispatch_DT"] - df["Invoice_DT"]).dt.total_seconds() / 3600.0)
+df["Invoice_Dispatch_TAT"] = df["Invoice_Dispatch_TAT"].apply(lambda x: x if pd.notna(x) and x >= 0 else np.nan)
 
 # Status mapping
 if col_status and col_status in df.columns:
@@ -1375,6 +1384,7 @@ if selected_page == "📊 Executive Overview":
     delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
     avg_creation_to_deliv_tat = filtered["Creation_Delivery_TAT"].mean()
     avg_shipping_tat = filtered["Shipping_TAT"].mean()
+    avg_invoice_dispatch_tat = filtered["Invoice_Dispatch_TAT"].mean()
 
     CONTRACT_TAT_HOURS = 24.0
     if pd.notna(avg_creation_to_deliv_tat):
@@ -1466,6 +1476,13 @@ if selected_page == "📊 Executive Overview":
                 f"{avg_shipping_tat:.1f} hrs" if pd.notna(avg_shipping_tat) else "N/A",
                 "Average time from dispatch to successful delivery.",
                 "🚚",
+                BRAND["amber"],
+            ),
+            (
+                "Invoice → Dispatch TAT",
+                f"{avg_invoice_dispatch_tat:.1f} hrs" if pd.notna(avg_invoice_dispatch_tat) else "N/A",
+                "Average time from invoice date to dispatch (Dispatch Date − Invoice Date).",
+                "🧾",
                 BRAND["amber"],
             ),
             (
