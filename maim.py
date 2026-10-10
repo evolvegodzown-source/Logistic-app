@@ -250,7 +250,7 @@ def section_header(title, note=""):
 # ============================================================================
 COMPARE_KPIS = [
     "Order Volume",
-    "Fulfilment Rate",
+    "Delivery Rate",
     "TAT: Order to Delivery",
     "TAT: Dispatch to Delivery",
     "TAT: Invoice to Dispatch",
@@ -321,7 +321,7 @@ def compute_period_kpis(frame, col_client):
     tat_invoice_dispatch = frame["Invoice_Dispatch_TAT"].mean()
     return {
         "Order Volume": float(orders),
-        "Fulfilment Rate": float(fulfil),
+        "Delivery Rate": float(fulfil),
         "TAT: Order to Delivery": float(tat_order) if pd.notna(tat_order) else 0.0,
         "TAT: Dispatch to Delivery": float(tat_dispatch) if pd.notna(tat_dispatch) else 0.0,
         "TAT: Invoice to Dispatch": float(tat_invoice_dispatch) if pd.notna(tat_invoice_dispatch) else 0.0,
@@ -339,7 +339,7 @@ def fuel_cost_between(fuel_df, col_fuel_date, col_fuel_cost, start, end_exclusiv
 def format_kpi_value(kpi_name, value):
     if kpi_name == "Order Volume":
         return fmt_num(value)
-    if kpi_name == "Fulfilment Rate":
+    if kpi_name == "Delivery Rate":
         return f"{value:.1f}%"
     if kpi_name == "Fuel Cost":
         return money(value)
@@ -351,7 +351,7 @@ def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_
     curr = max(float(current_val), 0.0)
     prev = max(float(previous_val), 0.0)
     delta = pct_change(curr, prev)
-    lower_is_better = kpi_name.startswith("TAT")
+    lower_is_better = kpi_name.startswith("TAT") or kpi_name == "Fuel Cost"
     if delta is None:
         delta_color = THEME["muted"]
         delta_text = "Δ N/A (no baseline)"
@@ -404,6 +404,106 @@ def comparison_pie(kpi_name, current_val, previous_val, current_label, previous_
     return fig
 
 
+COMPARE_METRIC_ORDER = [
+    "Order Volume",
+    "Delivery Rate",
+    "TAT: Order to Delivery",
+    "TAT: Dispatch to Delivery",
+    "TAT: Invoice to Dispatch",
+    "Fuel Cost",
+]
+COMPARE_LOWER_IS_BETTER = (
+    "TAT: Order to Delivery",
+    "TAT: Dispatch to Delivery",
+    "TAT: Invoice to Dispatch",
+    "Fuel Cost",
+)
+
+
+def _period_kpis_with_fuel(data_df, current_mask, previous_mask, curr_bounds, prev_bounds,
+                           col_client, fuel_df, col_fuel_date, col_fuel_cost):
+    current = compute_period_kpis(data_df.loc[current_mask], col_client)
+    previous = compute_period_kpis(data_df.loc[previous_mask], col_client)
+    current["Fuel Cost"] = fuel_cost_between(fuel_df, col_fuel_date, col_fuel_cost, curr_bounds[0], curr_bounds[1])
+    previous["Fuel Cost"] = fuel_cost_between(fuel_df, col_fuel_date, col_fuel_cost, prev_bounds[0], prev_bounds[1])
+    return current, previous
+
+
+def _render_period_cards(comparison_name, current, previous):
+    cards = []
+    for metric in COMPARE_METRIC_ORDER:
+        current_value = current[metric]
+        previous_value = previous[metric]
+        change = current_value - previous_value
+        change_pct = (change / previous_value * 100) if previous_value else 0.0
+        if change == 0:
+            change_class, change_color = "", THEME["muted"]
+        else:
+            improved = (change < 0) if metric in COMPARE_LOWER_IS_BETTER else (change > 0)
+            change_class = "increase" if improved else "decrease"
+            change_color = BRAND["green"] if improved else BRAND["red"]
+        change_symbol = "▲" if change >= 0 else "▼"
+        cards.append(
+            textwrap.dedent(
+                f"""
+                <div class='comparison-card'>
+                    <div class='comparison-title'>{metric}</div>
+                    <div class='comparison-values'>
+                        <div><span class='comparison-label'>Current</span><strong>{format_kpi_value(metric, current_value)}</strong></div>
+                        <div><span class='comparison-label'>Previous</span><strong>{format_kpi_value(metric, previous_value)}</strong></div>
+                    </div>
+                    <div class='comparison-change {change_class}' style='color: {change_color} !important;'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
+                </div>
+                """
+            ).strip()
+        )
+    st.markdown(f"<h3 class='comparison-period'>{comparison_name}</h3>", unsafe_allow_html=True)
+    st.markdown("<div class='comparison-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+
+
+def quarter_anchor(data_df, col_date, selected_quarter, selected_week, selected_month):
+    """Anchor date for QoQ: selected quarter > selected week/month > latest date."""
+    if selected_quarter != "All Quarters" and "Quarter Label" in data_df.columns and col_date:
+        q_dates = data_df.loc[data_df["Quarter Label"] == selected_quarter, col_date].dropna()
+        if not q_dates.empty:
+            return q_dates.max()
+    return comparison_anchor(data_df, col_date, selected_week, selected_month)
+
+
+def qoq_periods(data_df, col_date, selected_quarter, selected_week, selected_month):
+    """Current vs previous quarter windows, cut on col_date like WoW/MoM."""
+    if col_date is None or col_date not in data_df.columns:
+        return None
+    if data_df[col_date].dropna().empty:
+        return None
+    anchor = quarter_anchor(data_df, col_date, selected_quarter, selected_week, selected_month)
+    if anchor is None:
+        return None
+    latest = anchor.normalize()
+    current_q_start = pd.Timestamp(year=latest.year, month=3 * ((latest.month - 1) // 3) + 1, day=1)
+    previous_q_start = current_q_start - pd.DateOffset(months=3)
+    current_q_end = current_q_start + pd.DateOffset(months=3)
+    return (
+        data_df[col_date].ge(current_q_start) & data_df[col_date].lt(current_q_end),
+        data_df[col_date].ge(previous_q_start) & data_df[col_date].lt(current_q_start),
+        (current_q_start, current_q_end),
+        (previous_q_start, current_q_start),
+    )
+
+
+def render_qoq_section(data_df, fuel_df, col_date, col_client, col_fuel_date, col_fuel_cost,
+                       selected_quarter, selected_week, selected_month):
+    """Quarter-on-Quarter comparison cards (current quarter vs the previous one)."""
+    qoq = qoq_periods(data_df, col_date, selected_quarter, selected_week, selected_month)
+    if qoq is None:
+        show_empty_chart("No dated records are available for QoQ comparison.")
+        return
+    current, previous = _period_kpis_with_fuel(
+        data_df, *qoq, col_client, fuel_df, col_fuel_date, col_fuel_cost
+    )
+    _render_period_cards("QoQ", current, previous)
+
+
 def render_comparison_section(data_df, fuel_df, col_date, col_client, col_fuel_date, col_fuel_cost,
                                selected_week, selected_month):
     periods = comparison_periods(data_df, col_date, selected_week, selected_month)
@@ -416,54 +516,17 @@ def render_comparison_section(data_df, fuel_df, col_date, col_client, col_fuel_d
         <span><i class='legend-current'></i>Current period</span>
         <span><i class='legend-previous'></i>Previous period</span>
         <span><i class='legend-increase'></i>Improvement (green)</span>
-        <span><i class='legend-decrease'></i>Decline (red) — for TAT metrics the colours are reversed: faster is green</span>
+        <span><i class='legend-decrease'></i>Decline (red) — for TAT and Fuel Cost metrics the colours are reversed: lower is green</span>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    metric_order = [
-        "Order Volume",
-        "Fulfilment Rate",
-        "TAT: Order to Delivery",
-        "TAT: Dispatch to Delivery",
-        "TAT: Invoice to Dispatch",
-        "Fuel Cost",
-    ]
-    lower_is_better = ("TAT: Order to Delivery", "TAT: Dispatch to Delivery", "TAT: Invoice to Dispatch")
     for comparison_name, (current_mask, previous_mask, curr_bounds, prev_bounds) in periods.items():
-        current = compute_period_kpis(data_df.loc[current_mask], col_client)
-        previous = compute_period_kpis(data_df.loc[previous_mask], col_client)
-        current["Fuel Cost"] = fuel_cost_between(fuel_df, col_fuel_date, col_fuel_cost, curr_bounds[0], curr_bounds[1])
-        previous["Fuel Cost"] = fuel_cost_between(fuel_df, col_fuel_date, col_fuel_cost, prev_bounds[0], prev_bounds[1])
-        cards = []
-        for metric in metric_order:
-            current_value = current[metric]
-            previous_value = previous[metric]
-            change = current_value - previous_value
-            change_pct = (change / previous_value * 100) if previous_value else 0.0
-            if change == 0:
-                change_class, change_color = "", THEME["muted"]
-            else:
-                improved = (change < 0) if metric in lower_is_better else (change > 0)
-                change_class = "increase" if improved else "decrease"
-                change_color = BRAND["green"] if improved else BRAND["red"]
-            change_symbol = "▲" if change >= 0 else "▼"
-            cards.append(
-                textwrap.dedent(
-                    f"""
-                    <div class='comparison-card'>
-                        <div class='comparison-title'>{metric}</div>
-                        <div class='comparison-values'>
-                            <div><span class='comparison-label'>Current</span><strong>{format_kpi_value(metric, current_value)}</strong></div>
-                            <div><span class='comparison-label'>Previous</span><strong>{format_kpi_value(metric, previous_value)}</strong></div>
-                        </div>
-                        <div class='comparison-change {change_class}' style='color: {change_color} !important;'>{change_symbol} {abs(change_pct):.1f}% vs previous</div>
-                    </div>
-                    """
-                ).strip()
-            )
-        st.markdown(f"<h3 class='comparison-period'>{comparison_name}</h3>", unsafe_allow_html=True)
-        st.markdown("<div class='comparison-grid'>" + "".join(cards) + "</div>", unsafe_allow_html=True)
+        current, previous = _period_kpis_with_fuel(
+            data_df, current_mask, previous_mask, curr_bounds, prev_bounds,
+            col_client, fuel_df, col_fuel_date, col_fuel_cost,
+        )
+        _render_period_cards(comparison_name, current, previous)
 
 
 # ============================================================================
@@ -480,7 +543,7 @@ def render_performance_trend(data_df):
     with control_metric:
         metric_label = st.selectbox(
             "Metric",
-            ["Fulfillment", "TAT: Creation to Delivery", "TAT: Dispatch to Delivery", "TAT: Invoice to Dispatch"],
+            ["Delivery Rate", "TAT: Creation to Delivery", "TAT: Dispatch to Delivery", "TAT: Invoice to Dispatch"],
             key="performance_trend_metric",
         )
     if date_granularity == "Week":
@@ -493,7 +556,7 @@ def render_performance_trend(data_df):
         trend_df["Period"] = trend_df["Created_DT"].dt.to_period("M").dt.start_time
         period_format = "%b %Y"
     metric_columns = {
-        "Fulfillment": ("Is Delivered", "Fulfillment Rate (%)"),
+        "Delivery Rate": ("Is Delivered", "Delivery Rate (%)"),
         "TAT: Creation to Delivery": ("Creation_Delivery_TAT", "Average TAT (hrs)"),
         "TAT: Dispatch to Delivery": ("Shipping_TAT", "Average TAT (hrs)"),
         "TAT: Invoice to Dispatch": ("Invoice_Dispatch_TAT", "Average TAT (hrs)"),
@@ -505,7 +568,7 @@ def render_performance_trend(data_df):
         .rename(columns={value_column: "Value"})
         .sort_values("Period")
     )
-    if metric_label == "Fulfillment":
+    if metric_label == "Delivery Rate":
         trend["Value"] = trend["Value"] * 100
     if trend.empty:
         show_empty_chart("No data is available for the selected trend.")
@@ -1096,6 +1159,11 @@ if col_date and col_date in df.columns:
     df["Year"] = df[col_date].dt.year.fillna(0).astype(int)
     df["Month"] = df[col_date].dt.month.fillna(0).astype(int)
     df["Month Label"] = df[col_date].dt.strftime("%B %Y").fillna("Unassigned Date")
+    df["Quarter Label"] = (
+        df[col_date].dt.to_period("Q").astype(str)
+        .str.replace(r"^(\d{4})Q(\d)$", r"Q\2 \1", regex=True)
+        .fillna("Unassigned Date")
+    )
     df["Week Label"] = (
         "W" + df["Week"].astype(str).str.zfill(2)
         + " - " + _wk_year.fillna(0).astype(int).astype(str)
@@ -1103,6 +1171,7 @@ if col_date and col_date in df.columns:
 else:
     df["Month Label"] = "Unassigned Date"
     df["Week Label"] = "Unassigned Date"
+    df["Quarter Label"] = "Unassigned Date"
 
 df[col_value] = pd.to_numeric(df[col_value], errors="coerce").fillna(0)
 df[col_qty] = pd.to_numeric(df[col_qty], errors="coerce").fillna(0)
@@ -1157,6 +1226,11 @@ if fuel_raw is not None and not fuel_raw.empty:
     if col_fuel_date and col_fuel_date in fuel.columns:
         fuel[col_fuel_date] = pd.to_datetime(fuel[col_fuel_date], errors="coerce")
         fuel["Fuel Month Label"] = fuel[col_fuel_date].dt.strftime("%B %Y").fillna("Unassigned Date")
+        fuel["Fuel Quarter Label"] = (
+            fuel[col_fuel_date].dt.to_period("Q").astype(str)
+            .str.replace(r"^(\d{4})Q(\d)$", r"Q\2 \1", regex=True)
+            .fillna("Unassigned Date")
+        )
         _fwk_num, _fwk_start, _fwk_year = sun_sat_week(fuel[col_fuel_date])
         fuel["Fuel Week"] = _fwk_num.fillna(0).astype(int)
         fuel["Fuel Year"] = _fwk_start.dt.year.fillna(0).astype(int)
@@ -1227,6 +1301,11 @@ if repairs_raw is not None and not repairs_raw.empty:
     if col_repair_date and col_repair_date in repairs.columns:
         repairs[col_repair_date] = pd.to_datetime(repairs[col_repair_date], errors="coerce")
         repairs["Repair Month Label"] = repairs[col_repair_date].dt.strftime("%B %Y").fillna("Unassigned Date")
+        repairs["Repair Quarter Label"] = (
+            repairs[col_repair_date].dt.to_period("Q").astype(str)
+            .str.replace(r"^(\d{4})Q(\d)$", r"Q\2 \1", regex=True)
+            .fillna("Unassigned Date")
+        )
         _rwk_num, _rwk_start, _rwk_year = sun_sat_week(repairs[col_repair_date])
         repairs["Repair Week"] = _rwk_num.fillna(0).astype(int)
         repairs["Repair Year"] = _rwk_start.dt.year.fillna(0).astype(int)
@@ -1255,6 +1334,7 @@ if repairs_raw is not None and not repairs_raw.empty:
 # ============================================================================
 month_labels = set(df["Month Label"].dropna().astype(str))
 week_labels = set(df["Week Label"].dropna().astype(str))
+quarter_labels = set(df["Quarter Label"].dropna().astype(str))
 for date_view, month_label_col, week_label_col in (
     (fuel, "Fuel Month Label", "Fuel Week Label"),
     (repairs, "Repair Month Label", "Repair Week Label"),
@@ -1264,12 +1344,27 @@ for date_view, month_label_col, week_label_col in (
             month_labels.update(date_view[month_label_col].dropna().astype(str))
         if week_label_col in date_view.columns:
             week_labels.update(date_view[week_label_col].dropna().astype(str))
+        if "Fuel Quarter Label" in date_view.columns:
+            quarter_labels.update(date_view["Fuel Quarter Label"].dropna().astype(str))
+        if "Repair Quarter Label" in date_view.columns:
+            quarter_labels.update(date_view["Repair Quarter Label"].dropna().astype(str))
 
 month_options = ["All Months"] + sorted(
     month_labels,
     key=lambda label: pd.to_datetime(label, format="%B %Y", errors="coerce"),
     reverse=True,
 )
+
+
+def _quarter_sort_key(label):
+    try:
+        q, year = label.split()
+        return pd.Period(f"{year}{q}", freq="Q")
+    except (ValueError, TypeError):
+        return pd.Period("1970Q1", freq="Q")
+
+
+quarter_options = ["All Quarters"] + sorted(quarter_labels, key=_quarter_sort_key, reverse=True)
 week_options = ["All Weeks"] + sorted(week_labels, reverse=True)
 region_options = ["All Regions"] + sorted(df[col_region].dropna().astype(str).unique().tolist(), reverse=True)
 status_options = ["All Statuses"] + sorted(df[col_status].dropna().unique().tolist(), reverse=True)
@@ -1279,6 +1374,7 @@ if col_order_type and col_order_type in df.columns:
 
 
 def clear_filter_selections():
+    st.session_state["filter_quarter"] = "All Quarters"
     st.session_state["filter_month"] = "All Months"
     st.session_state["filter_week"] = "All Weeks"
     st.session_state["filter_region"] = "All Regions"
@@ -1325,7 +1421,9 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-f_month, f_week, f_region, f_status, f_type, f_clear = st.columns([1.1, 1.1, 1, 1.2, 1.1, 0.9])
+f_quarter, f_month, f_week, f_region, f_status, f_type, f_clear = st.columns([1, 1.1, 1.1, 1, 1.2, 1.1, 0.8])
+with f_quarter:
+    selected_quarter = st.selectbox("Quarter", quarter_options, key="filter_quarter")
 with f_month:
     selected_month = st.selectbox("Month", month_options, key="filter_month")
 with f_week:
@@ -1341,6 +1439,8 @@ with f_clear:
 
 # Apply filters
 filtered = df.copy()
+if selected_quarter != "All Quarters":
+    filtered = filtered[filtered["Quarter Label"] == selected_quarter]
 if selected_month != "All Months":
     filtered = filtered[filtered["Month Label"] == selected_month]
 if selected_week != "All Weeks":
@@ -1361,9 +1461,11 @@ if selected_status != "All Statuses":
 if selected_order_type != "All Order Types" and col_order_type:
     comparison_base = comparison_base[comparison_base[col_order_type].astype(str).str.strip() == selected_order_type]
 
-# Fuel view (respects Month/Week only)
+# Fuel view (respects Quarter/Month/Week only)
 fuel_view = fuel.copy() if fuel is not None else None
 if fuel_view is not None:
+    if selected_quarter != "All Quarters" and "Fuel Quarter Label" in fuel_view.columns:
+        fuel_view = fuel_view[fuel_view["Fuel Quarter Label"] == selected_quarter]
     if selected_month != "All Months" and "Fuel Month Label" in fuel_view.columns:
         fuel_view = fuel_view[fuel_view["Fuel Month Label"] == selected_month]
     if selected_week != "All Weeks" and "Fuel Week Label" in fuel_view.columns:
@@ -1431,6 +1533,8 @@ if selected_page == "📊 Executive Overview":
     # Repairs totals
     repairs_view = repairs.copy() if repairs is not None else None
     if repairs_view is not None:
+        if selected_quarter != "All Quarters" and "Repair Quarter Label" in repairs_view.columns:
+            repairs_view = repairs_view[repairs_view["Repair Quarter Label"] == selected_quarter]
         if selected_month != "All Months" and "Repair Month Label" in repairs_view.columns:
             repairs_view = repairs_view[repairs_view["Repair Month Label"] == selected_month]
         if selected_week != "All Weeks" and "Repair Week Label" in repairs_view.columns:
@@ -1537,15 +1641,25 @@ if selected_page == "📊 Executive Overview":
     )
 
     section_header(
+        "QoQ — Quarter-on-Quarter Performance",
+        "Current quarter versus the previous quarter (anchored to the Quarter filter, or the latest data). "
+        "Green indicates improvement, red indicates decline; for TAT and Fuel Cost metrics the colours are reversed.",
+    )
+    render_qoq_section(
+        comparison_base, fuel, col_date, col_client, col_fuel_date, col_fuel_cost,
+        selected_quarter, selected_week, selected_month
+    )
+
+    section_header(
         "Week-on-Week & Month-on-Month Performance",
-        "Green indicates improvement, red indicates decline. For TAT metrics the colours are reversed — a decrease in turnaround time is green.",
+        "Green indicates improvement, red indicates decline. For TAT and Fuel Cost metrics the colours are reversed — a decrease is green.",
     )
     render_comparison_section(
         comparison_base, fuel, col_date, col_client, col_fuel_date, col_fuel_cost,
         selected_week, selected_month
     )
 
-    section_header("Performance Trend", "Track fulfillment and delivery turnaround over time.")
+    section_header("Performance Trend", "Track delivery rate and turnaround over time.")
     render_performance_trend(filtered)
 
     section_header("Network Performance")
@@ -1735,8 +1849,8 @@ elif selected_page == "📈 WoW / MoM Comparison":
     st.caption(
         "ℹ️ Slice size represents each period's share of the combined total. "
         "TAT deltas are colour-coded green when turnaround improves (decreases). "
-        "Fuel Cost deltas follow the volume rule (increase = green). "
-        "Comparison respects the sidebar slicers (Month, Week, Region, Status, Order Type)."
+        "Fuel Cost deltas are reversed (a decrease is green). "
+        "Comparison respects the sidebar slicers (Quarter, Month, Week, Region, Status, Order Type)."
     )
 
 
@@ -1801,7 +1915,7 @@ elif selected_page == "🚛 Vehicles & Order Count":
                     "Orders_Dispatched": "Orders Dispatched",
                     "Delivered_Orders": "Delivered Orders",
                     "Total_Order_Value": "Total Order Value",
-                    "Fulfillment_Rate": "Fulfillment Rate (%)",
+                    "Fulfillment_Rate": "Delivery Rate (%)",
                 }
             )
             display_veh["Total Order Value"] = display_veh["Total Order Value"].apply(money)
@@ -2055,7 +2169,7 @@ elif selected_page == "💡 Recommendations":
             if not orders_count:
                 return {
                     "Orders Dispensed": 0.0,
-                    "Fulfillment Rate": None,
+                    "Delivery Rate": None,
                     "Order-to-Delivery TAT": None,
                     "Dispatch-to-Delivery TAT": None,
                 }
@@ -2063,7 +2177,7 @@ elif selected_page == "💡 Recommendations":
             dispatch_tat = frame["Shipping_TAT"].mean()
             return {
                 "Orders Dispensed": float(orders_count),
-                "Fulfillment Rate": float(frame["Is Delivered"].mean() * 100),
+                "Delivery Rate": float(frame["Is Delivered"].mean() * 100),
                 "Order-to-Delivery TAT": float(order_tat) if pd.notna(order_tat) else None,
                 "Dispatch-to-Delivery TAT": float(dispatch_tat) if pd.notna(dispatch_tat) else None,
             }
@@ -2103,7 +2217,7 @@ elif selected_page == "💡 Recommendations":
                 "Review client activity, order pipeline and service coverage.",
             ),
             (
-                "Fulfillment Rate", True, lambda value: f"{value:.1f}%",
+                "Delivery Rate", True, lambda value: f"{value:.1f}%",
                 "Maintain the practices supporting reliable fulfillment.",
                 "Investigate stock availability, picking delays and failed deliveries.",
             ),
