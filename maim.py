@@ -627,7 +627,15 @@ def load_data(path=DATA_PATH):
         (s for n, s in all_sheets.items() if "repair" in str(n).lower() and "servic" in str(n).lower()),
         None,
     )
-    return orders_df, fuel_sheet, assets_sheet, repairs_sheet
+    access_sheet = next(
+        (s for n, s in all_sheets.items() if "access" in str(n).lower() and "order" in str(n).lower()),
+        None,
+    )
+    if access_sheet is not None and any(str(c).startswith("Unnamed") for c in access_sheet.columns):
+        access_sheet = access_sheet.rename(
+            columns=dict(zip(access_sheet.columns, access_sheet.iloc[0].astype(str).str.strip()))
+        ).iloc[1:].reset_index(drop=True)
+    return orders_df, fuel_sheet, assets_sheet, repairs_sheet, access_sheet
 
 
 # ============================================================================
@@ -1088,6 +1096,7 @@ PAGES = [
     "⛽ Fueling Cost",
     "🧑‍✈️ Captain Efficiency",
     "🗂️ Audit Data",
+    "🧾 Access Orders",
     "🛠️ Asset Management",
     "💰 Cost Control",
     "💡 Recommendations",
@@ -1100,7 +1109,7 @@ selected_page = st.sidebar.radio("Dashboard pages", PAGES, label_visibility="col
 # ============================================================================
 try:
     with st.spinner("🔄 Refreshing live logistics data..."):
-        df_raw, fuel_raw, assets_raw, repairs_raw = load_data(DATA_PATH)
+        df_raw, fuel_raw, assets_raw, repairs_raw, access_raw = load_data(DATA_PATH)
 except Exception as exc:
     st.error("Unable to load the logistics workbook.")
     st.info("Verify the live link contains valid Excel tables.")
@@ -1327,6 +1336,64 @@ if repairs_raw is not None and not repairs_raw.empty:
         rpairs = rpairs[(rpairs["_plate"] != "") & rpairs[col_repair_area].notna()]
         for plate, area in zip(rpairs["_plate"], rpairs[col_repair_area].astype(str).str.strip()):
             plate_to_area.setdefault(plate, area)
+
+
+# ============================================================================
+# ACCESS ORDERS (HMO last-mile deliveries)
+# ============================================================================
+ACCESS_COL_SO = "SALES ORDER [SO]"
+access = None
+if access_raw is not None and not access_raw.empty:
+    access = access_raw.copy()
+    access.columns = [str(c).strip() for c in access.columns]
+    for expected in ("SALES ORDER [SO]", "DELIVERY STATUS", "DELIVERY DATE", "DELIVERY TIME", "TIME OUT", "PA CODE DATE"):
+        if expected not in access.columns:
+            access = None
+            break
+
+if access is not None:
+    access["SO"] = access[ACCESS_COL_SO].fillna("").astype(str).str.strip()
+    access = access[access["SO"] != ""].copy()
+    access["Status"] = access["DELIVERY STATUS"].fillna("").astype(str).str.strip()
+    access["HMO"] = access["HMO"].fillna("").astype(str).str.strip().replace({"": "Unassigned"})
+    _reason = access["DISPATCH REMARKS"].fillna("").astype(str).str.strip()
+    access["Return Reason"] = _reason.where(_reason != "")
+
+    # TAT: dispatch (TIME OUT) to delivery, on the delivery date; deliveries past
+    # midnight roll into the next day.
+    access["Delivery_DT"] = build_timestamp(access, "DELIVERY DATE", "DELIVERY TIME")
+    access["Dispatch_DT"] = build_timestamp(access, "DELIVERY DATE", "TIME OUT")
+    past_midnight = access["Delivery_DT"] < access["Dispatch_DT"]
+    access.loc[past_midnight, "Delivery_DT"] = access.loc[past_midnight, "Delivery_DT"] + pd.Timedelta(days=1)
+    access["TAT_Hrs"] = (access["Delivery_DT"] - access["Dispatch_DT"]).dt.total_seconds() / 3600.0
+    access["TAT_Hrs"] = access["TAT_Hrs"].apply(lambda x: x if pd.notna(x) and x >= 0 else np.nan)
+
+    # Attempts: rows per SO ordered by delivery time (PA code date as fallback).
+    access["_attempt_order"] = access["Delivery_DT"].fillna(
+        pd.to_datetime(access.get("PA CODE DATE"), errors="coerce")
+    )
+    access = access.sort_values(["SO", "_attempt_order"], kind="mergesort")
+    access["Attempt"] = access.groupby("SO").cumcount() + 1
+    # A re-attempt is any trip after a failed (or still re-attempting) trip for
+    # the same SO — bulk orders delivered in several scheduled trips only count
+    # once a trip has actually failed.
+    _prior_failures = access.groupby("SO")["Status"].transform(
+        lambda statuses: statuses.isin({"Failed", "Re-attempting"}).cumsum().shift(fill_value=0)
+    )
+    access["Reattempt"] = _prior_failures.gt(0) & access["Attempt"].ge(2)
+    _last_status = access.groupby("SO")["Status"].last()
+    access["Returned_Order"] = access["SO"].isin(set(_last_status[_last_status == "Returned"].index))
+
+    # Sun-Sat reporting weeks on delivery date (PA code date as fallback).
+    _aw = access["_attempt_order"]
+    _awk_num, _awk_start, _awk_year = sun_sat_week(_aw)
+    access["Week"] = _awk_num.fillna(0).astype(int)
+    access["Year"] = _awk_start.dt.year.fillna(0).astype(int)
+    access["Week Label"] = (
+        "W" + access["Week"].astype(str).str.zfill(2)
+        + " - " + _awk_year.fillna(0).astype(int).astype(str)
+    )
+    access["Month Label"] = _aw.dt.strftime("%B %Y").fillna("Unassigned Date")
 
 
 # ============================================================================
@@ -2292,3 +2359,158 @@ elif selected_page == "💡 Recommendations":
         previous_label = previous_bounds[0].strftime("%B %Y")
         st.caption(f"{current_label} compared with {previous_label}")
         st.dataframe(pd.DataFrame(recommendation_rows), hide_index=True)
+
+
+# ---------------------------------------------------------------------------
+# PAGE 10: ACCESS ORDERS
+# ---------------------------------------------------------------------------
+elif selected_page == "🧾 Access Orders":
+    section_header(
+        "Access Orders — HMO Delivery Performance",
+        "Last-mile deliveries for HMO enrollees, fed from the Access Orders tab of the logistics workbook.",
+    )
+    if access is None or access.empty:
+        st.info("No Access Orders data found in the logistics workbook.")
+    else:
+        month_options = sorted(
+            access["Month Label"].unique(),
+            key=lambda label: pd.to_datetime(label, errors="coerce"),
+        )
+        f1, f2 = st.columns(2)
+        with f1:
+            sel_access_months = st.multiselect("Month", month_options, default=month_options)
+        with f2:
+            hmo_options = sorted(access["HMO"].unique())
+            sel_hmos = st.multiselect("HMO", hmo_options, default=hmo_options)
+
+        av = access[access["Month Label"].isin(sel_access_months) & access["HMO"].isin(sel_hmos)].copy()
+
+        def _hrs(value):
+            return f"{value:.1f} hrs" if pd.notna(value) else "N/A"
+
+        total_orders = av["SO"].nunique()
+        dispatched = int(av["Dispatch_DT"].notna().sum())
+        first_attempts = int((av["Attempt"] == 1).sum())
+        first_attempt_deliveries = int(((av["Attempt"] == 1) & av["Status"].eq("Delivered")).sum())
+        reattempts = int(av["Reattempt"].sum())
+        returned_orders = int(av.loc[~av.duplicated("SO"), "Returned_Order"].sum())
+        delivered_mask = av["Status"].eq("Delivered")
+        tat = av["TAT_Hrs"]
+        tat_valid = tat.notna().sum()
+        avg_tat = tat.mean()
+        sla_count = int((tat <= 4).sum())
+        sla_pct = (sla_count / tat_valid * 100) if tat_valid else None
+        avg_tat_reattempt = av.loc[av["Reattempt"], "TAT_Hrs"].mean()
+        avg_tat_first = av.loc[(av["Attempt"] == 1) & delivered_mask, "TAT_Hrs"].mean()
+
+        render_kpis(
+            [
+                ("Total Orders Processed", fmt_num(total_orders), "Distinct sales orders on the Access Orders tab.", "📦", BRAND["blue"]),
+                ("Total Orders Dispatched", fmt_num(dispatched), "Delivery rows with a dispatch (TIME OUT) recorded.", "🚚", BRAND["amber"]),
+                ("First Attempts", fmt_num(first_attempts), "First delivery trip for each sales order.", "✅", BRAND["green"]),
+                ("Re-attempts", fmt_num(reattempts), "Trips after a failed delivery on the same order.", "🔁", BRAND["red"]),
+                ("Returned Orders", fmt_num(returned_orders), "Orders whose latest status is Returned.", "↩️", BRAND["red"]),
+                ("Average TAT", _hrs(avg_tat), "Mean dispatch-to-delivery turnaround.", "⏱", BRAND["blue"]),
+                ("Deliveries within 4 hrs SLA", f"{sla_pct:.1f}%" if sla_pct is not None else "N/A", f"{sla_count:,} of {int(tat_valid):,} timed deliveries at or under 4 hours.", "🎯", BRAND["green"]),
+                ("Avg TAT (Re-attempted)", _hrs(avg_tat_reattempt), "Mean turnaround on trips after a failed delivery.", "⏱", BRAND["amber"]),
+            ]
+        )
+
+        section_header("Impact of Re-attempts on TAT", "Average dispatch-to-delivery time, first-trip deliveries versus re-attempts.")
+        if pd.notna(avg_tat_first) and pd.notna(avg_tat_reattempt) and avg_tat_first:
+            delta_h = avg_tat_reattempt - avg_tat_first
+            delta_text = f"{delta_h:+.1f} hrs ({delta_h / avg_tat_first * 100:+.1f}%)"
+            delta_note = (
+                f"Re-attempted orders take {abs(delta_h):.1f} hrs longer on average — "
+                "failed first trips add meaningful turnaround time."
+                if delta_h > 0 else
+                "Re-attempted orders currently show a lower average TAT than first attempts."
+            )
+        else:
+            delta_text = "N/A"
+            delta_note = "Insufficient delivered re-attempt data to measure the impact."
+        render_kpis(
+            [
+                ("Avg TAT · First Attempt", _hrs(avg_tat_first), "Orders delivered on the first trip.", "🥇", BRAND["green"]),
+                ("Avg TAT · Re-attempt", _hrs(avg_tat_reattempt), "Orders delivered on a second or later trip.", "🔁", BRAND["red"]),
+                ("Re-attempt TAT Impact", delta_text, delta_note, "📊", BRAND["navy"]),
+            ]
+        )
+
+        section_header("Week-on-Week Trend", "Sun-Sat reporting weeks, based on delivery date.")
+        wow = (
+            av.assign(
+                FirstAttemptDeliveries=((av["Attempt"] == 1) & delivered_mask).astype(int),
+                Reattempts=av["Reattempt"].astype(int),
+            )
+            .groupby(["Year", "Week", "Week Label"], as_index=False)[["FirstAttemptDeliveries", "Reattempts"]]
+            .sum()
+            .sort_values(["Year", "Week"])
+        )
+        if wow.empty:
+            st.info("No dated access orders for the selected filters.")
+        else:
+            wow_long = wow.melt(
+                id_vars="Week Label",
+                value_vars=["FirstAttemptDeliveries", "Reattempts"],
+                var_name="Metric",
+                value_name="Orders",
+            )
+            wow_long["Metric"] = wow_long["Metric"].map(
+                {"FirstAttemptDeliveries": "First Attempt deliveries", "Reattempts": "Re-attempts"}
+            )
+            fig = px.line(wow_long, x="Week Label", y="Orders", color="Metric", markers=True,
+                          color_discrete_map={"First Attempt deliveries": BRAND["green"], "Re-attempts": BRAND["red"]})
+            fig.update_layout(height=380, margin=dict(l=10, r=10, t=30, b=10))
+            st.plotly_chart(fig, use_container_width=True)
+
+        section_header("Delivery Performance per HMO")
+        hmo_rows = []
+        for hmo, group in av.groupby("HMO"):
+            group_tat = group["TAT_Hrs"]
+            group_tat_valid = group_tat.notna().sum()
+            hmo_rows.append(
+                {
+                    "HMO": hmo,
+                    "Volume (Orders)": group["SO"].nunique(),
+                    "Delivered": int(group["Status"].eq("Delivered").sum()),
+                    "First Attempts": int((group["Attempt"] == 1).sum()),
+                    "First Attempt Deliveries": int(((group["Attempt"] == 1) & group["Status"].eq("Delivered")).sum()),
+                    "Re-attempts": int(group["Reattempt"].sum()),
+                    "Avg TAT (hrs)": round(float(group_tat.mean()), 1) if group_tat_valid else None,
+                    "≤ 4 hrs Deliveries (%)": round((group_tat <= 4).sum() / group_tat_valid * 100, 1) if group_tat_valid else None,
+                }
+            )
+        hmo_df = pd.DataFrame(hmo_rows).sort_values("Volume (Orders)", ascending=False)
+        st.dataframe(hmo_df, use_container_width=True, hide_index=True)
+
+        section_header("Return Reasons", "Dispatch remarks on orders not delivered (Failed, Returned, Re-attempting, Dropped).")
+        not_delivered = av[~delivered_mask & av["Return Reason"].notna()]
+        if not_delivered.empty:
+            st.info("No return reasons recorded for the selected filters.")
+        else:
+            reason_summary = not_delivered["Return Reason"].value_counts().reset_index()
+            reason_summary.columns = ["Return Reason", "Count"]
+            reason_summary["% of Non-Delivered"] = (
+                reason_summary["Count"] / len(not_delivered) * 100
+            ).round(1)
+            reason_summary["% of All Orders"] = (
+                reason_summary["Count"] / max(len(av), 1) * 100
+            ).round(1)
+            st.dataframe(reason_summary, use_container_width=True, hide_index=True)
+
+        section_header("Access Orders Data", f"{len(av):,} delivery rows for the selected filters.")
+        access_columns = [
+            col for col in ["SO", "HMO", "CLIENT NAME", "Type", "CAPTAIN NAME",
+                            "Attempt", "Reattempt", "Status", "Dispatch_DT", "Delivery_DT", "TAT_Hrs",
+                            "Return Reason", "Week Label"]
+            if col in av.columns
+        ]
+        st.dataframe(av[access_columns], use_container_width=True, hide_index=True, height=420)
+        access_csv = av[access_columns].to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "⬇️ Download Access Orders CSV",
+            data=access_csv,
+            file_name="drugstoc_access_orders.csv",
+            mime="text/csv",
+        )
