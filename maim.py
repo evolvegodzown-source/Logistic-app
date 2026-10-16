@@ -701,35 +701,72 @@ st.markdown(
             border-color: var(--ds-blue) !important;
             background: rgba(22,134,217,.18) !important;
         }}
-        @keyframes ds-pulse {{
-            0% {{ box-shadow: 0 0 0 0 rgba(22,134,217,.45); }}
-            70% {{ box-shadow: 0 0 0 12px rgba(22,134,217,0); }}
-            100% {{ box-shadow: 0 0 0 0 rgba(22,134,217,0); }}
+        section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{
+            display: flex;
+            flex-direction: column;
         }}
-        section[data-testid="stSidebar"] .stButton button {{
-            animation: ds-pulse 2.4s infinite;
+        section[data-testid="stSidebar"] [data-testid="stSidebarContent"] > div {{
+            flex: 1;
+        }}
+        .sidebar-footer {{
+            margin-top: auto;
+            padding: 12px 4px 2px 4px;
+            border-top: 1px solid rgba(255,255,255,.12);
+        }}
+        .sidebar-user {{
+            display: block;
+            color: #9FB8CC !important;
+            font-size: .76rem;
+            margin: 4px 2px 10px 2px;
+        }}
+        .sidebar-footer .stButton button {{
+            background: transparent !important;
+            border: 1px solid rgba(255,255,255,.16) !important;
+            border-radius: 9px !important;
+            font-size: .82rem !important;
+            font-weight: 600 !important;
+            padding: .3rem .6rem !important;
+            box-shadow: none !important;
+            animation: none !important;
+            transition: background .15s ease, border-color .15s ease;
+        }}
+        .sidebar-footer .stButton button:hover {{
+            background: rgba(255,255,255,.10) !important;
+            border-color: rgba(255,255,255,.3) !important;
         }}
         section[data-testid="stSidebar"] [data-testid="stRadio"] input {{ display: none; }}
-        section[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {{ gap: 7px; }}
+        section[data-testid="stSidebar"] [data-testid="stRadio"] [role="radiogroup"] {{ gap: 4px; }}
         section[data-testid="stSidebar"] [data-testid="stRadio"] label {{
             display: flex;
+            align-items: center;
             width: 100%;
-            padding: 10px 14px !important;
-            border-radius: 11px !important;
-            background: rgba(255,255,255,.08) !important;
-            border: 1px solid rgba(255,255,255,.14) !important;
+            min-height: 44px;
+            padding: 8px 14px !important;
+            border-radius: 10px !important;
+            background: transparent !important;
+            border: none !important;
             cursor: pointer;
-            transition: background .15s ease, border-color .15s ease, transform .15s ease;
+            transition: background .15s ease;
         }}
         section[data-testid="stSidebar"] [data-testid="stRadio"] label:hover {{
-            background: rgba(22,134,217,.18) !important;
-            border-color: var(--ds-blue) !important;
-            transform: translateX(3px);
+            background: rgba(255,255,255,.07) !important;
+            border: none !important;
         }}
         section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked) {{
-            background: #1686D9 !important;
-            border-color: #1686D9 !important;
-            box-shadow: 0 6px 16px rgba(22,134,217,.35);
+            background: rgba(255,255,255,.13) !important;
+            border: none !important;
+            box-shadow: none !important;
+            position: relative;
+        }}
+        section[data-testid="stSidebar"] [data-testid="stRadio"] label:has(input:checked)::before {{
+            content: "";
+            position: absolute;
+            left: 0;
+            top: 22%;
+            bottom: 22%;
+            width: 3px;
+            border-radius: 0 3px 3px 0;
+            background: #6EC1F2;
         }}
         .sidebar-brand {{
             padding: 6px 0 18px 0;
@@ -1080,28 +1117,36 @@ st.sidebar.markdown(
     """,
     unsafe_allow_html=True,
 )
-st.sidebar.caption(f"Signed in as {st.session_state.get('authenticated_user', '')}")
-if st.sidebar.button("Sign out", key="dashboard_sign_out"):
-    st.session_state["dashboard_authenticated"] = False
-    st.session_state.pop("authenticated_user", None)
-    st.rerun()
-if st.sidebar.button("🔄 Refresh Data"):
-    st.cache_data.clear()
-    st.rerun()
-
 PAGES = [
-    "📊 Executive Overview",
-    "📈 WoW / MoM Comparison",
-    "🚛 Vehicles & Order Count",
-    "⛽ Fueling Cost",
-    "🧑‍✈️ Captain Efficiency",
-    "🗂️ Audit Data",
-    "🧾 Access Orders",
-    "🛠️ Asset Management",
-    "💰 Cost Control",
-    "💡 Recommendations",
+    ":material/home: Overview",
+    ":material/monitoring: WoW / MoM",
+    ":material/local_shipping: Vehicles & Orders",
+    ":material/oil_barrel: Fueling Cost",
+    ":material/badge: Captain Efficiency",
+    ":material/fact_check: Audit Data",
+    ":material/receipt_long: Access Orders",
+    ":material/handyman: Asset Management",
+    ":material/savings: Cost Control",
+    ":material/lightbulb: Recommendations",
 ]
 selected_page = st.sidebar.radio("Dashboard pages", PAGES, label_visibility="collapsed")
+
+with st.sidebar.container(key="sidebar_footer"):
+    st.markdown(
+        f"<span class='sidebar-user'>Signed in as "
+        f"{st.session_state.get('authenticated_user', '')}</span>",
+        unsafe_allow_html=True,
+    )
+    sign_out_col, refresh_col = st.columns(2, gap="small")
+    with sign_out_col:
+        if st.button("Sign out", key="dashboard_sign_out"):
+            st.session_state["dashboard_authenticated"] = False
+            st.session_state.pop("authenticated_user", None)
+            st.rerun()
+    with refresh_col:
+        if st.button("Refresh data", key="dashboard_refresh"):
+            st.cache_data.clear()
+            st.rerun()
 
 
 # ============================================================================
@@ -1546,7 +1591,7 @@ if fuel_view is not None:
 # ---------------------------------------------------------------------------
 # PAGE 1: EXECUTIVE OVERVIEW
 # ---------------------------------------------------------------------------
-if selected_page == "📊 Executive Overview":
+if selected_page == ":material/home: Overview":
     total_orders = int(filtered[col_client].count()) if col_client else len(filtered)
     total_value = filtered[col_value].sum()
     delivered_count = int(filtered["Is Delivered"].sum())
@@ -1840,7 +1885,7 @@ if selected_page == "📊 Executive Overview":
 # ---------------------------------------------------------------------------
 # PAGE 2: WoW / MoM COMPARISON
 # ---------------------------------------------------------------------------
-elif selected_page == "📈 WoW / MoM Comparison":
+elif selected_page == ":material/monitoring: WoW / MoM":
     section_header(
         "Week-on-Week & Month-on-Month Performance",
         "Pie-chart share comparison across the core operational KPIs plus fuel cost",
@@ -1924,7 +1969,7 @@ elif selected_page == "📈 WoW / MoM Comparison":
 # ---------------------------------------------------------------------------
 # PAGE 3: VEHICLES & ORDER COUNT
 # ---------------------------------------------------------------------------
-elif selected_page == "🚛 Vehicles & Order Count":
+elif selected_page == ":material/local_shipping: Vehicles & Orders":
     section_header("Vehicle Dispatch & Order Value Performance")
     if not col_vehicle:
         st.info(
@@ -2020,7 +2065,7 @@ elif selected_page == "🚛 Vehicles & Order Count":
 # ---------------------------------------------------------------------------
 # PAGE 4: FUELING COST
 # ---------------------------------------------------------------------------
-elif selected_page == "⛽ Fueling Cost":
+elif selected_page == ":material/oil_barrel: Fueling Cost":
     section_header("Fueling Cost", "Fuel spend picked from the Fuel tab of the logistics_DB workbook.")
     if fuel is None or fuel.empty:
         st.info("No Fuel sheet found in the logistics workbook.")
@@ -2125,7 +2170,7 @@ elif selected_page == "⛽ Fueling Cost":
 # ---------------------------------------------------------------------------
 # PAGE 5: CAPTAIN EFFICIENCY
 # ---------------------------------------------------------------------------
-elif selected_page == "🧑‍✈️ Captain Efficiency":
+elif selected_page == ":material/badge: Captain Efficiency":
     section_header("Rider & Captain Turnaround Performance")
     if not col_captain:
         st.info("No Captain field found in the dataset.")
@@ -2165,7 +2210,7 @@ elif selected_page == "🧑‍✈️ Captain Efficiency":
 # ---------------------------------------------------------------------------
 # PAGE 6: AUDIT DATA
 # ---------------------------------------------------------------------------
-elif selected_page == "🗂️ Audit Data":
+elif selected_page == ":material/fact_check: Audit Data":
     section_header("Filtered Audit Logs", f"{len(filtered):,} records shown from {len(df):,} total records.")
     st.dataframe(filtered, use_container_width=True, hide_index=True, height=600)
     csv = filtered.to_csv(index=False).encode("utf-8")
@@ -2180,7 +2225,7 @@ elif selected_page == "🗂️ Audit Data":
 # ---------------------------------------------------------------------------
 # PAGE 7: ASSET MANAGEMENT
 # ---------------------------------------------------------------------------
-elif selected_page == "🛠️ Asset Management":
+elif selected_page == ":material/handyman: Asset Management":
     st.subheader("🛠️ Asset Management")
     st.markdown(
         "Track and manage logistics assets — vehicles, cold-chain equipment, "
@@ -2199,7 +2244,7 @@ elif selected_page == "🛠️ Asset Management":
 # ---------------------------------------------------------------------------
 # PAGE 8: COST CONTROL
 # ---------------------------------------------------------------------------
-elif selected_page == "💰 Cost Control":
+elif selected_page == ":material/savings: Cost Control":
     st.subheader("💰 Cost Control")
     st.markdown(
         "Monitor logistics spend, cost per delivery, fuel efficiency, and "
@@ -2218,7 +2263,7 @@ elif selected_page == "💰 Cost Control":
 # ---------------------------------------------------------------------------
 # PAGE 9: RECOMMENDATIONS
 # ---------------------------------------------------------------------------
-elif selected_page == "💡 Recommendations":
+elif selected_page == ":material/lightbulb: Recommendations":
     section_header(
         "Month-on-Month Recommendations",
         "Latest month versus the previous month, using the selected Region, Status and Order Type.",
@@ -2364,7 +2409,7 @@ elif selected_page == "💡 Recommendations":
 # ---------------------------------------------------------------------------
 # PAGE 10: ACCESS ORDERS
 # ---------------------------------------------------------------------------
-elif selected_page == "🧾 Access Orders":
+elif selected_page == ":material/receipt_long: Access Orders":
     section_header(
         "Access Orders — HMO Delivery Performance",
         "Last-mile deliveries for HMO enrollees, fed from the Access Orders tab of the logistics workbook.",
