@@ -620,6 +620,9 @@ def load_data(path=DATA_PATH):
         None,
     )
     assets_sheet = next(
+        (s for n, s in all_sheets.items() if "asset mapping" in str(n).strip().lower()),
+        None,
+    ) or next(
         (s for n, s in all_sheets.items() if str(n).strip().lower() == "assets"),
         None,
     )
@@ -1829,7 +1832,7 @@ if selected_page == ":material/home: Overview":
             )
             st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
-    section_header("Coverage Area Analysis", "Order count and fuel cost grouped by vehicle coverage area (from the Assets tab).")
+    section_header("Coverage Area Analysis", "Order count and fuel cost grouped by vehicle coverage area (from the Asset Mapping tab).")
     if col_vehicle:
         order_area = (
             filtered.dropna(subset=[col_vehicle])
@@ -2248,7 +2251,7 @@ elif selected_page == ":material/insights: BI Summary":
         "TRYCYCLE": "#7C3AED",
     }
     if assets_registry is None or assets_registry.empty:
-        st.info("No Assets sheet found in the logistics_DB workbook.")
+        st.info("No Asset Mapping tab found in the logistics_DB workbook.")
     else:
         reg = assets_registry.copy()
         col_assets_qty = find_col(
@@ -2273,7 +2276,7 @@ elif selected_page == ":material/insights: BI Summary":
             ]
         else:
             prev = reg
-            st.caption("No date column found in the Assets sheet — showing all records.")
+            st.caption("No date column found in the Asset Mapping tab — showing all records.")
 
         def _weighted_counts(frame, label_col):
             src = frame[frame[label_col].notna()].copy()
@@ -2327,7 +2330,7 @@ elif selected_page == ":material/insights: BI Summary":
         col_bar, col_donut = st.columns(2)
         with col_bar:
             if area_counts.empty:
-                show_empty_chart("No business area data available in the Assets sheet.")
+                show_empty_chart("No business area data available in the Asset Mapping tab.")
             else:
                 fig = px.bar(
                     area_counts.sort_values("Assets", ascending=True),
@@ -2348,7 +2351,7 @@ elif selected_page == ":material/insights: BI Summary":
                 st.plotly_chart(plotly_theme(fig), use_container_width=True)
         with col_donut:
             if type_counts.empty:
-                show_empty_chart("No asset type column found in the Assets sheet.")
+                show_empty_chart("No asset type column found in the Asset Mapping tab.")
             else:
                 fig = px.pie(
                     type_counts,
