@@ -1118,6 +1118,7 @@ st.sidebar.markdown(
     unsafe_allow_html=True,
 )
 PAGES = [
+    ":material/insights: BI Summary",
     ":material/home: Overview",
     ":material/monitoring: WoW / MoM",
     ":material/local_shipping: Vehicles & Orders",
@@ -1301,6 +1302,8 @@ if fuel_raw is not None and not fuel_raw.empty:
 # ASSETS SHEET PROCESSING
 # ============================================================================
 plate_to_area = {}
+assets_registry = None
+col_assets_type = None
 if assets_raw is not None and not assets_raw.empty:
     assets_df = assets_raw.copy()
     if assets_df.columns.astype(str).str.startswith("Unnamed").mean() > 0.5:
@@ -1316,6 +1319,10 @@ if assets_raw is not None and not assets_raw.empty:
         assets_df,
         ["Coverage Area", "Coverage", "Area", "Zone", "Region", "Territory", "Location"],
     )
+    col_assets_type = find_col(
+        assets_df,
+        ["Asset Type", "Type", "Vehicle Type", "Vehicle Category", "Category", "Asset Category"],
+    )
     if col_assets_plate and col_assets_area:
         pairs = (
             assets_df[[col_assets_plate, col_assets_area]]
@@ -1324,6 +1331,7 @@ if assets_raw is not None and not assets_raw.empty:
         )
         pairs = pairs[(pairs["_plate"] != "") & pairs[col_assets_area].notna()]
         plate_to_area = dict(zip(pairs["_plate"], pairs[col_assets_area].astype(str).str.strip()))
+    assets_registry = assets_df
 
 
 # ============================================================================
@@ -2220,6 +2228,99 @@ elif selected_page == ":material/fact_check: Audit Data":
         file_name="drugstoc_filtered_logistics_audit.csv",
         mime="text/csv",
     )
+
+
+# ---------------------------------------------------------------------------
+# PAGE: BI SUMMARY — Asset Mapping
+# ---------------------------------------------------------------------------
+elif selected_page == ":material/insights: BI Summary":
+    section_header(
+        "BI Summary",
+        "Asset mapping from the logistics_DB workbook — assets per business area and asset type mix.",
+    )
+    ASSET_TYPE_COLORS = {
+        "BIKE": BRAND["green"],
+        "CARS": "#9AA3AF",
+        "FUTON TRUCK": BRAND["blue"],
+        "HIACE": "#1E3A8A",
+        "SALON": "#F97316",
+        "SALONPAS": "#F97316",
+        "TRYCYCLE": "#7C3AED",
+    }
+    if assets_registry is None or assets_registry.empty:
+        st.info("No Assets sheet found in the logistics_DB workbook.")
+    else:
+        reg = assets_registry.copy()
+        reg = reg[reg[col_assets_plate].notna()] if col_assets_plate else reg
+        k1, k2, k3 = st.columns(3)
+        k1.metric("Total Assets", fmt_num(len(reg)))
+        if col_assets_type:
+            type_counts_all = (
+                reg[col_assets_type].dropna().astype(str).str.strip()
+            )
+            type_counts_all = type_counts_all[type_counts_all != ""]
+            top_type = type_counts_all.value_counts()
+            k3.metric("Top Asset Type", str(top_type.index[0]) if not top_type.empty else "—")
+        else:
+            k3.metric("Top Asset Type", "—")
+        if col_assets_area:
+            area_counts = (
+                reg[col_assets_area].dropna().astype(str).str.strip()
+            )
+            area_counts = area_counts[area_counts != ""].value_counts().reset_index()
+            area_counts.columns = ["Business Area", "Assets"]
+            k2.metric("Business Areas", fmt_num(area_counts.shape[0]))
+        else:
+            area_counts = pd.DataFrame(columns=["Business Area", "Assets"])
+            k2.metric("Business Areas", "—")
+
+        col_bar, col_donut = st.columns(2)
+        with col_bar:
+            if area_counts.empty:
+                show_empty_chart("No business area data available in the Assets sheet.")
+            else:
+                fig = px.bar(
+                    area_counts.sort_values("Assets", ascending=True),
+                    x="Assets",
+                    y="Business Area",
+                    orientation="h",
+                    text="Assets",
+                    title="ASSETS PER BUSINESS AREA",
+                    color_discrete_sequence=["#6B7280"],
+                )
+                fig.update_traces(textposition="outside", cliponaxis=False)
+                fig.update_layout(
+                    showlegend=False,
+                    height=max(360, min(650, 120 + len(area_counts) * 36)),
+                    xaxis_title=None,
+                    yaxis_title="BUSINESS AREA",
+                )
+                st.plotly_chart(plotly_theme(fig), use_container_width=True)
+        with col_donut:
+            if not col_assets_type or type_counts_all.empty:
+                show_empty_chart("No asset type column found in the Assets sheet.")
+            else:
+                donut = type_counts_all.value_counts().reset_index()
+                donut.columns = ["Asset Type", "Assets"]
+                fig = px.pie(
+                    donut,
+                    names="Asset Type",
+                    values="Assets",
+                    hole=0.6,
+                    title="ASSET TYPE",
+                    color="Asset Type",
+                    color_discrete_map=ASSET_TYPE_COLORS,
+                    color_discrete_sequence=[BRAND["blue"], "#9AA3AF", "#1E3A8A", "#F97316", "#7C3AED", BRAND["green"]],
+                )
+                fig.update_traces(textinfo="value+percent")
+                fig.update_layout(
+                    height=420,
+                    legend=dict(
+                        orientation="v", yanchor="middle", y=0.5, x=1.02, xanchor="left",
+                        font=dict(size=10, color=THEME["muted"]),
+                    ),
+                )
+                st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
 
 # ---------------------------------------------------------------------------
