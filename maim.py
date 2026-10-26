@@ -605,7 +605,7 @@ def load_data(path=DATA_PATH):
             "Chrome/120.0.0.0 Safari/537.36"
         )
     }
-    response = requests.get(path, headers=headers, timeout=25)
+    response = requests.get(path, headers=headers, timeout=(15, 180))
     response.raise_for_status()
     source = io.BytesIO(response.content)
     all_sheets = pd.read_excel(source, sheet_name=None)
@@ -620,10 +620,11 @@ def load_data(path=DATA_PATH):
         None,
     )
     assets_sheet = next(
-        (s for n, s in all_sheets.items() if "asset mapping" in str(n).strip().lower()),
-        None,
-    ) or next(
         (s for n, s in all_sheets.items() if str(n).strip().lower() == "assets"),
+        None,
+    )
+    asset_mapping_sheet = next(
+        (s for n, s in all_sheets.items() if "asset mapping" in str(n).strip().lower()),
         None,
     )
     repairs_sheet = next(
@@ -638,7 +639,7 @@ def load_data(path=DATA_PATH):
         access_sheet = access_sheet.rename(
             columns=dict(zip(access_sheet.columns, access_sheet.iloc[0].astype(str).str.strip()))
         ).iloc[1:].reset_index(drop=True)
-    return orders_df, fuel_sheet, assets_sheet, repairs_sheet, access_sheet
+    return orders_df, fuel_sheet, assets_sheet, repairs_sheet, access_sheet, asset_mapping_sheet
 
 
 # ============================================================================
@@ -1158,7 +1159,7 @@ with st.sidebar.container(key="sidebar_footer"):
 # ============================================================================
 try:
     with st.spinner("🔄 Refreshing live logistics data..."):
-        df_raw, fuel_raw, assets_raw, repairs_raw, access_raw = load_data(DATA_PATH)
+        df_raw, fuel_raw, assets_raw, repairs_raw, access_raw, asset_mapping_raw = load_data(DATA_PATH)
 except Exception as exc:
     st.error("Unable to load the logistics workbook.")
     st.info("Verify the live link contains valid Excel tables.")
@@ -2239,7 +2240,7 @@ elif selected_page == ":material/fact_check: Audit Data":
 elif selected_page == ":material/insights: BI Summary":
     section_header(
         "BI Summary",
-        "Asset mapping from the logistics_DB workbook — previous calendar month.",
+        "Asset mapping from the ASSET MAPPING tab of the logistics_DB workbook — previous calendar month.",
     )
     ASSET_TYPE_COLORS = {
         "BIKE": BRAND["green"],
@@ -2249,57 +2250,64 @@ elif selected_page == ":material/insights: BI Summary":
         "SALON": "#F97316",
         "SALONPAS": "#F97316",
         "TRYCYCLE": "#7C3AED",
+        "3PL": "#0D9488",
+        "MSR": "#B45309",
     }
-    if assets_registry is None or assets_registry.empty:
-        st.info("No Asset Mapping tab found in the logistics_DB workbook.")
+    if asset_mapping_raw is None or asset_mapping_raw.empty:
+        st.info("No ASSET MAPPING tab found in the logistics_DB workbook.")
     else:
-        reg = assets_registry.copy()
-        col_assets_qty = find_col(
-            reg,
-            ["Quantity", "Qty", "QTY", "Units", "Count", "No of Units", "Number of Assets"],
-        )
-        col_assets_date = find_col(
-            reg,
-            ["Date", "Month", "Date Added", "Date Purchased", "Purchase Date", "Entry Date", "Created Date"],
-        )
-        if col_assets_plate:
-            reg = reg[reg[col_assets_plate].notna()]
+        am = asset_mapping_raw.copy()
+        if am.columns.astype(str).str.startswith("Unnamed").mean() > 0.5:
+            am.columns = [str(c).strip() for c in am.iloc[0]]
+            am = am.iloc[1:].reset_index(drop=True)
+        else:
+            am.columns = [str(c).strip() for c in am.columns]
+        col_am_date = find_col(am, ["DATE", "Date", "Month"])
+        col_am_type = find_col(am, ["ASSET TYPE", "Asset Type", "Type"])
+        col_am_qty = find_col(am, ["QUANTITY", "Quantity", "Qty"])
+        meta_cols = {c for c in (col_am_date, col_am_type, col_am_qty) if c}
+        area_cols = [c for c in am.columns if c not in meta_cols]
 
         today = pd.Timestamp.now()
         prev_month_start = (today.replace(day=1) - pd.Timedelta(days=1)).replace(day=1)
         prev_label = prev_month_start.strftime("%B %Y")
-        if col_assets_date:
-            parsed_dates = pd.to_datetime(reg[col_assets_date], errors="coerce")
-            prev = reg[
+        if col_am_date:
+            parsed_dates = pd.to_datetime(am[col_am_date], errors="coerce")
+            prev = am[
                 (parsed_dates.dt.year == prev_month_start.year)
                 & (parsed_dates.dt.month == prev_month_start.month)
             ]
         else:
-            prev = reg
-            st.caption("No date column found in the Asset Mapping tab — showing all records.")
+            prev = am
+            st.caption("No DATE column found in the ASSET MAPPING tab — showing all records.")
 
-        def _weighted_counts(frame, label_col):
-            src = frame[frame[label_col].notna()].copy()
-            src["_label"] = src[label_col].astype(str).str.strip()
-            src = src[src["_label"] != ""]
-            if col_assets_qty:
-                src["_n"] = pd.to_numeric(src[col_assets_qty], errors="coerce")
-                counts = src.groupby("_label")["_n"].sum().reset_index()
-            else:
-                counts = src["_label"].value_counts().reset_index()
-            counts.columns = [label_col, "Assets"]
-            counts["Assets"] = pd.to_numeric(counts["Assets"], errors="coerce").fillna(0)
-            return counts
-
-        if col_assets_qty:
-            total_assets = float(pd.to_numeric(prev[col_assets_qty], errors="coerce").sum())
+        if col_am_qty:
+            total_assets = float(pd.to_numeric(prev[col_am_qty], errors="coerce").sum())
             total_desc = f"Sum of Quantity for {prev_label}."
         else:
-            total_assets = float(len(prev))
-            total_desc = f"Asset records for {prev_label}."
-        area_counts = _weighted_counts(prev, col_assets_area) if col_assets_area else pd.DataFrame(columns=[col_assets_area, "Assets"])
-        type_counts = _weighted_counts(prev, col_assets_type) if col_assets_type else pd.DataFrame(columns=[col_assets_type, "Assets"])
-        top_type = str(type_counts.sort_values("Assets", ascending=False)[col_assets_type].iloc[0]) if not type_counts.empty else "—"
+            total_assets = float(pd.to_numeric(prev[area_cols], errors="coerce").sum().sum()) if area_cols else 0.0
+            total_desc = f"Assets mapped for {prev_label}."
+        area_counts = pd.DataFrame(
+            {
+                "Business Area": area_cols,
+                "Assets": [int(prev[c].count()) for c in area_cols],
+            }
+        )
+        area_counts = area_counts[area_counts["Assets"] > 0]
+        if col_am_type:
+            t = prev[[col_am_type] + ([col_am_qty] if col_am_qty else [])].copy()
+            t["_type"] = t[col_am_type].dropna().astype(str).str.strip().str.upper()
+            t = t[t["_type"] != ""]
+            if col_am_qty:
+                t["_n"] = pd.to_numeric(t[col_am_qty], errors="coerce").fillna(0)
+            else:
+                t["_n"] = 1
+            type_counts = t.groupby("_type")["_n"].sum().reset_index()
+            type_counts.columns = ["Asset Type", "Assets"]
+            type_counts = type_counts[type_counts["Assets"] > 0]
+        else:
+            type_counts = pd.DataFrame(columns=["Asset Type", "Assets"])
+        top_type = str(type_counts.sort_values("Assets", ascending=False)["Asset Type"].iloc[0]) if not type_counts.empty else "—"
 
         render_kpis(
             [
@@ -2313,14 +2321,14 @@ elif selected_page == ":material/insights: BI Summary":
                 (
                     "Business Areas",
                     fmt_num(area_counts.shape[0]),
-                    f"Distinct business areas for {prev_label}.",
+                    f"Distinct business areas with assets for {prev_label}.",
                     "📍",
                     BRAND["teal"],
                 ),
                 (
                     "Top Asset Type",
                     top_type,
-                    f"Most common asset type for {prev_label}.",
+                    f"Highest-quantity asset type for {prev_label}.",
                     "🏍",
                     BRAND["amber"],
                 ),
@@ -2330,12 +2338,12 @@ elif selected_page == ":material/insights: BI Summary":
         col_bar, col_donut = st.columns(2)
         with col_bar:
             if area_counts.empty:
-                show_empty_chart("No business area data available in the Asset Mapping tab.")
+                show_empty_chart("No business area data available in the ASSET MAPPING tab.")
             else:
                 fig = px.bar(
                     area_counts.sort_values("Assets", ascending=True),
                     x="Assets",
-                    y=col_assets_area,
+                    y="Business Area",
                     orientation="h",
                     text="Assets",
                     title=f"ASSETS PER BUSINESS AREA — {prev_label.upper()}",
@@ -2351,15 +2359,15 @@ elif selected_page == ":material/insights: BI Summary":
                 st.plotly_chart(plotly_theme(fig), use_container_width=True)
         with col_donut:
             if type_counts.empty:
-                show_empty_chart("No asset type column found in the Asset Mapping tab.")
+                show_empty_chart("No asset type data found in the ASSET MAPPING tab.")
             else:
                 fig = px.pie(
                     type_counts,
-                    names=col_assets_type,
+                    names="Asset Type",
                     values="Assets",
                     hole=0.6,
                     title=f"ASSET TYPE — {prev_label.upper()}",
-                    color=col_assets_type,
+                    color="Asset Type",
                     color_discrete_map=ASSET_TYPE_COLORS,
                     color_discrete_sequence=[BRAND["blue"], "#9AA3AF", "#1E3A8A", "#F97316", "#7C3AED", BRAND["green"]],
                 )
