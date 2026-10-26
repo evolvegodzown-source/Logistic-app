@@ -1551,7 +1551,7 @@ with f_week:
 with f_region:
     selected_region = st.selectbox("Region / Hub", region_options, key="filter_region")
 with f_status:
-    selected_status = st.selectbox("Delivery Status (STATUS)", status_options, key="filter_status")
+    selected_status = st.selectbox("Delivery Status", status_options, key="filter_status")
 with f_type:
     selected_order_type = st.selectbox("Order Type", order_type_options, key="filter_order_type")
 with f_clear:
@@ -1824,7 +1824,7 @@ if selected_page == ":material/home: Overview":
                 names="Status",
                 values="Orders",
                 hole=0.56,
-                title="Fulfillment Status Mix (STATUS)",
+                title="Fulfillment Status Mix",
                 color_discrete_sequence=[BRAND["green"], BRAND["blue"], BRAND["amber"], BRAND["red"], "#8B5CF6"],
             )
             st.plotly_chart(plotly_theme(fig), use_container_width=True)
@@ -2236,7 +2236,7 @@ elif selected_page == ":material/fact_check: Audit Data":
 elif selected_page == ":material/insights: BI Summary":
     section_header(
         "BI Summary",
-        "Asset mapping from the logistics_DB workbook — assets per business area and asset type mix.",
+        "Asset mapping from the logistics_DB workbook — previous calendar month.",
     )
     ASSET_TYPE_COLORS = {
         "BIKE": BRAND["green"],
@@ -2251,28 +2251,78 @@ elif selected_page == ":material/insights: BI Summary":
         st.info("No Assets sheet found in the logistics_DB workbook.")
     else:
         reg = assets_registry.copy()
-        reg = reg[reg[col_assets_plate].notna()] if col_assets_plate else reg
-        k1, k2, k3 = st.columns(3)
-        k1.metric("Total Assets", fmt_num(len(reg)))
-        if col_assets_type:
-            type_counts_all = (
-                reg[col_assets_type].dropna().astype(str).str.strip()
-            )
-            type_counts_all = type_counts_all[type_counts_all != ""]
-            top_type = type_counts_all.value_counts()
-            k3.metric("Top Asset Type", str(top_type.index[0]) if not top_type.empty else "—")
+        col_assets_qty = find_col(
+            reg,
+            ["Quantity", "Qty", "QTY", "Units", "Count", "No of Units", "Number of Assets"],
+        )
+        col_assets_date = find_col(
+            reg,
+            ["Date", "Month", "Date Added", "Date Purchased", "Purchase Date", "Entry Date", "Created Date"],
+        )
+        if col_assets_plate:
+            reg = reg[reg[col_assets_plate].notna()]
+
+        today = pd.Timestamp.now()
+        prev_month_start = (today.replace(day=1) - pd.Timedelta(days=1)).replace(day=1)
+        prev_label = prev_month_start.strftime("%B %Y")
+        if col_assets_date:
+            parsed_dates = pd.to_datetime(reg[col_assets_date], errors="coerce")
+            prev = reg[
+                (parsed_dates.dt.year == prev_month_start.year)
+                & (parsed_dates.dt.month == prev_month_start.month)
+            ]
         else:
-            k3.metric("Top Asset Type", "—")
-        if col_assets_area:
-            area_counts = (
-                reg[col_assets_area].dropna().astype(str).str.strip()
-            )
-            area_counts = area_counts[area_counts != ""].value_counts().reset_index()
-            area_counts.columns = ["Business Area", "Assets"]
-            k2.metric("Business Areas", fmt_num(area_counts.shape[0]))
+            prev = reg
+            st.caption("No date column found in the Assets sheet — showing all records.")
+
+        def _weighted_counts(frame, label_col):
+            src = frame[frame[label_col].notna()].copy()
+            src["_label"] = src[label_col].astype(str).str.strip()
+            src = src[src["_label"] != ""]
+            if col_assets_qty:
+                src["_n"] = pd.to_numeric(src[col_assets_qty], errors="coerce")
+                counts = src.groupby("_label")["_n"].sum().reset_index()
+            else:
+                counts = src["_label"].value_counts().reset_index()
+            counts.columns = [label_col, "Assets"]
+            counts["Assets"] = pd.to_numeric(counts["Assets"], errors="coerce").fillna(0)
+            return counts
+
+        if col_assets_qty:
+            total_assets = float(pd.to_numeric(prev[col_assets_qty], errors="coerce").sum())
+            total_desc = f"Sum of Quantity for {prev_label}."
         else:
-            area_counts = pd.DataFrame(columns=["Business Area", "Assets"])
-            k2.metric("Business Areas", "—")
+            total_assets = float(len(prev))
+            total_desc = f"Asset records for {prev_label}."
+        area_counts = _weighted_counts(prev, col_assets_area) if col_assets_area else pd.DataFrame(columns=[col_assets_area, "Assets"])
+        type_counts = _weighted_counts(prev, col_assets_type) if col_assets_type else pd.DataFrame(columns=[col_assets_type, "Assets"])
+        top_type = str(type_counts.sort_values("Assets", ascending=False)[col_assets_type].iloc[0]) if not type_counts.empty else "—"
+
+        render_kpis(
+            [
+                (
+                    "Total Assets",
+                    fmt_num(total_assets),
+                    total_desc,
+                    "🚚",
+                    BRAND["blue"],
+                ),
+                (
+                    "Business Areas",
+                    fmt_num(area_counts.shape[0]),
+                    f"Distinct business areas for {prev_label}.",
+                    "📍",
+                    BRAND["teal"],
+                ),
+                (
+                    "Top Asset Type",
+                    top_type,
+                    f"Most common asset type for {prev_label}.",
+                    "🏍",
+                    BRAND["amber"],
+                ),
+            ]
+        )
 
         col_bar, col_donut = st.columns(2)
         with col_bar:
@@ -2282,10 +2332,10 @@ elif selected_page == ":material/insights: BI Summary":
                 fig = px.bar(
                     area_counts.sort_values("Assets", ascending=True),
                     x="Assets",
-                    y="Business Area",
+                    y=col_assets_area,
                     orientation="h",
                     text="Assets",
-                    title="ASSETS PER BUSINESS AREA",
+                    title=f"ASSETS PER BUSINESS AREA — {prev_label.upper()}",
                     color_discrete_sequence=["#6B7280"],
                 )
                 fig.update_traces(textposition="outside", cliponaxis=False)
@@ -2297,18 +2347,16 @@ elif selected_page == ":material/insights: BI Summary":
                 )
                 st.plotly_chart(plotly_theme(fig), use_container_width=True)
         with col_donut:
-            if not col_assets_type or type_counts_all.empty:
+            if type_counts.empty:
                 show_empty_chart("No asset type column found in the Assets sheet.")
             else:
-                donut = type_counts_all.value_counts().reset_index()
-                donut.columns = ["Asset Type", "Assets"]
                 fig = px.pie(
-                    donut,
-                    names="Asset Type",
+                    type_counts,
+                    names=col_assets_type,
                     values="Assets",
                     hole=0.6,
-                    title="ASSET TYPE",
-                    color="Asset Type",
+                    title=f"ASSET TYPE — {prev_label.upper()}",
+                    color=col_assets_type,
                     color_discrete_map=ASSET_TYPE_COLORS,
                     color_discrete_sequence=[BRAND["blue"], "#9AA3AF", "#1E3A8A", "#F97316", "#7C3AED", BRAND["green"]],
                 )
