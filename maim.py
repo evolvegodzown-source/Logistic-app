@@ -2233,6 +2233,8 @@ elif selected_page == ":material/insights: BI Summary":
     _bi_delivered = filtered[filtered["Is Delivered"]]
     bi_deliveries = int(_bi_delivered[col_client].count()) if col_client else len(_bi_delivered)
     avg_logistics_cost = bi_logistics_total / bi_deliveries if bi_deliveries else None
+    bi_revenue_total = filtered[col_value].sum()
+    avg_revenue_per_delivery = bi_revenue_total / bi_deliveries if bi_deliveries else None
 
     section_header(
         "Logistics Costs",
@@ -2268,6 +2270,13 @@ elif selected_page == ":material/insights: BI Summary":
                 "Total Logistics Cost divided by Total Deliveries.",
                 "💸",
                 BRAND["teal"],
+            ),
+            (
+                "Average Revenue per Delivery",
+                money(avg_revenue_per_delivery) if avg_revenue_per_delivery is not None else "N/A",
+                "Total Order Value divided by Total Deliveries.",
+                "💰",
+                BRAND["green"],
             ),
         ]
     )
