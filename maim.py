@@ -1149,8 +1149,7 @@ st.sidebar.markdown(
 )
 PAGES = [
     ":material/insights: BI Summary",
-    ":material/home: Overview",
-    ":material/monitoring: WoW / MoM",
+    ":material/slides: Weekly meeting Presentation",
     ":material/local_shipping: Vehicles & Orders",
     ":material/oil_barrel: Fueling Cost",
     ":material/badge: Captain Efficiency",
@@ -1375,6 +1374,7 @@ repairs = None
 col_repair_date = None
 col_repair_cost = None
 col_engine_cost = None
+col_repair_desc = None
 
 if repairs_raw is not None and not repairs_raw.empty:
     repairs = repairs_raw.copy()
@@ -1393,6 +1393,11 @@ if repairs_raw is not None and not repairs_raw.empty:
     col_engine_cost = find_col(
         repairs,
         ["Servicing", "Servcing", "Engine Servicing", "Engine Oil", "Cost of Engine Oil"],
+    )
+    col_repair_desc = find_col(
+        repairs,
+        ["DESCRIPTION", "Description", "REPAIRS", "Repairs", "WORK DONE", "Work Done",
+         "ITEM", "Particulars", "Details"],
     )
     if col_repair_date and col_repair_date in repairs.columns:
         repairs[col_repair_date] = pd.to_datetime(repairs[col_repair_date], errors="coerce")
@@ -1626,383 +1631,377 @@ if fuel_view is not None:
 # ============================================================================
 
 # ---------------------------------------------------------------------------
-# PAGE 1: EXECUTIVE OVERVIEW
+# PAGE: WEEKLY MEETING PRESENTATION
 # ---------------------------------------------------------------------------
-if selected_page == ":material/home: Overview":
-    total_orders = int(filtered[col_client].count()) if col_client else len(filtered)
-    total_value = filtered[col_value].sum()
-    delivered_count = int(filtered["Is Delivered"].sum())
-    delivery_pct = (delivered_count / total_orders * 100) if total_orders else 0
-    avg_creation_to_deliv_tat = filtered["Creation_Delivery_TAT"].mean()
-    avg_shipping_tat = filtered["Shipping_TAT"].mean()
-    avg_invoice_dispatch_tat = filtered["Invoice_Dispatch_TAT"].mean()
+if selected_page == ":material/slides: Weekly meeting Presentation":
+    section_header("Weekly Meeting Presentation")
 
-    CONTRACT_TAT_HOURS = 24.0
-    if pd.notna(avg_creation_to_deliv_tat):
-        tat_within_contract = avg_creation_to_deliv_tat <= CONTRACT_TAT_HOURS
-        tat_diff = avg_creation_to_deliv_tat - CONTRACT_TAT_HOURS
-        tat_status_color = BRAND["green"] if tat_within_contract else BRAND["red"]
-        tat_contract_accent = tat_status_color
-        tat_contract_desc = (
-            f"Contract: {CONTRACT_TAT_HOURS:.0f} hrs · "
-            f"<strong style='color:{tat_status_color}'>"
-            f"{'Under' if tat_within_contract else 'Exceeded'} by {abs(tat_diff):.1f} hrs"
-            f"</strong>"
-        )
+    _base = comparison_base
+    _anchor = comparison_anchor(_base, col_date, selected_week, selected_month) if col_date else None
+    if _anchor is None and col_date and col_date in _base.columns and _base[col_date].notna().any():
+        _anchor = _base[col_date].max()
+    if _anchor is None:
+        st.info("No dated shipment records are available to build the weekly presentation.")
+        st.stop()
+
+    # Sun-Sat reporting weeks
+    _ref = _anchor.normalize()
+    _wk_start = _ref - pd.Timedelta(days=(_ref.weekday() + 1) % 7)
+    _prev_start = _wk_start - pd.Timedelta(days=7)
+    _wk_end = _wk_start + pd.Timedelta(days=6)
+    _pwk_end = _prev_start + pd.Timedelta(days=6)
+    _wk_num = int((_wk_start + pd.Timedelta(days=4)).isocalendar()[1])
+    _pwk_num = int((_prev_start + pd.Timedelta(days=4)).isocalendar()[1])
+    week_title = f"Week {_wk_num}: {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%B %Y}"
+    prev_title = f"Week {_pwk_num}: {_prev_start.day}\u2013{_pwk_end.day} {_pwk_end:%B %Y}"
+    curr_col = f"W{_wk_num:02d} / {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%b}"
+    prev_col = f"W{_pwk_num:02d} / {_prev_start.day}\u2013{_pwk_end.day} {_pwk_end:%b}"
+
+    def _in_week(frame, date_col, start):
+        if frame is None or not date_col or date_col not in frame.columns:
+            return frame.iloc[0:0]
+        return frame[frame[date_col].ge(start) & frame[date_col].lt(start + pd.Timedelta(days=7))]
+
+    _curr_orders = _in_week(_base, col_date, _wk_start)
+    _prev_orders = _in_week(_base, col_date, _prev_start)
+
+    def _tat_change(curr_v, prev_v):
+        if curr_v is None or pd.isna(curr_v):
+            return "No record"
+        if prev_v is None or pd.isna(prev_v) or prev_v == 0:
+            return "No comparison"
+        pct = (curr_v - prev_v) / abs(prev_v) * 100
+        if abs(pct) < 0.5:
+            return "Broadly flat"
+        return f"{abs(pct):.0f}% {'less' if pct < 0 else 'more'} time"
+
+    def _hrs(value):
+        return f"{value:.1f} hours" if value is not None and pd.notna(value) else "No record"
+
+    # --- Slide 2 table: dispatch -> delivery TAT by programme ---------------
+    if col_order_type and col_order_type in _base.columns:
+        _progs = sorted(_base[col_order_type].dropna().astype(str).str.strip().unique())
     else:
-        tat_contract_accent = BRAND["amber"]
-        tat_contract_desc = "Average time from order creation to delivery."
-
-    total_ctns = filtered[col_qty].sum()
-    facilities = filtered[col_client].nunique()
-
-    # Fuel KPIs
-    fuel_cost_total = fuel_view[col_fuel_cost].sum() if (fuel_view is not None and col_fuel_cost) else 0
-    top_plate = None
-    top_plate_cost = 0
-    if fuel_view is not None and col_fuel_cost and col_fuel_plate:
-        plate_totals = (
-            fuel_view.dropna(subset=[col_fuel_plate])
-            .assign(_plate=lambda x: x[col_fuel_plate].astype(str).str.strip().str.upper())
-            .groupby("_plate")[col_fuel_cost]
-            .sum()
-        )
-        if len(plate_totals):
-            top_plate = plate_totals.idxmax()
-            top_plate_cost = plate_totals.max()
-
-    # Total assets
-    asset_plates = set()
-    if col_vehicle:
-        asset_plates |= set(filtered[col_vehicle].dropna().astype(str).str.strip().str.upper().unique())
-    if fuel_view is not None and col_fuel_plate:
-        asset_plates |= set(fuel_view[col_fuel_plate].dropna().astype(str).str.strip().str.upper().unique())
-    total_assets = len(asset_plates)
-
-    # Repairs totals
-    repairs_view = repairs.copy() if repairs is not None else None
-    if repairs_view is not None:
-        if selected_quarter != "All Quarters" and "Repair Quarter Label" in repairs_view.columns:
-            repairs_view = repairs_view[repairs_view["Repair Quarter Label"] == selected_quarter]
-        if selected_month != "All Months" and "Repair Month Label" in repairs_view.columns:
-            repairs_view = repairs_view[repairs_view["Repair Month Label"] == selected_month]
-        if selected_week != "All Weeks" and "Repair Week Label" in repairs_view.columns:
-            repairs_view = repairs_view[repairs_view["Repair Week Label"] == selected_week]
-    repair_maint_total = repairs_view[col_repair_cost].sum() if (repairs_view is not None and col_repair_cost) else 0.0
-    engine_service_total = repairs_view[col_engine_cost].sum() if (repairs_view is not None and col_engine_cost) else 0.0
-    total_operational_cost = fuel_cost_total + repair_maint_total + engine_service_total
-    avg_operational_cost_per_order = total_operational_cost / total_orders if total_orders else None
-
-    section_header("Order and Operations KPIs")
-    render_kpis(
-        [
-            (
-                "Total Dispensed Orders",
-                fmt_num(total_orders),
-                "Count of Client Name (All records including duplicates).",
-                "📦",
-                BRAND["blue"],
-            ),
-            (
-                "Total Order Value",
-                money(total_value),
-                "Sum of Order Value across all filtered orders.",
-                "💰",
-                BRAND["green"],
-            ),
-            (
-                "Active Health Facilities",
-                fmt_num(facilities),
-                "Unique pharmacies, hospitals or facilities served.",
-                "🏥",
-                BRAND["blue"],
-            ),
-            (
-                "Order → Delivery TAT",
-                f"{avg_creation_to_deliv_tat:.1f} hrs" if pd.notna(avg_creation_to_deliv_tat) else "N/A",
-                tat_contract_desc,
-                "⏱",
-                tat_contract_accent,
-            ),
-            (
-                "Dispatch → Delivery TAT",
-                f"{avg_shipping_tat:.1f} hrs" if pd.notna(avg_shipping_tat) else "N/A",
-                "Average time from dispatch to successful delivery.",
-                "🚚",
-                BRAND["amber"],
-            ),
-            (
-                "Invoice → Dispatch TAT",
-                f"{avg_invoice_dispatch_tat:.1f} hrs" if pd.notna(avg_invoice_dispatch_tat) else "N/A",
-                "Average time from invoice date to dispatch (Dispatch Date − Invoice Date).",
-                "🧾",
-                BRAND["amber"],
-            ),
-            (
-                "Total Volume Shipped",
-                f"{total_ctns:,.0f} CTN",
-                "Total cartons recorded across filtered orders.",
-                "📦",
-                BRAND["blue"],
-            ),
-            (
-                "Total Operational Assets (Vehicle)",
-                fmt_num(total_assets),
-                "Distinct plate numbers across dispatch records and the Fuel tab.",
-                "🚛",
-                BRAND["blue"],
-            ),
-        ]
-    )
-
-    section_header("Operational Cost KPIs", "Fuel, repairs and servicing costs use the selected Month/Week filters.")
-    render_kpis(
-        [
-            (
-                "Total Fueling Cost",
-                money(fuel_cost_total),
-                f"Highest consumption: {top_plate} · {money(top_plate_cost)}" if top_plate else "No fuel records match the current Month/Week filters.",
-                "⛽",
-                BRAND["green"],
-            ),
-            (
-                "Repairs and Maintenance Cost",
-                money(repair_maint_total),
-                "Sum of the Maintenance & Repair column on the Repairs and Servicing tab.",
-                "🔧",
-                BRAND["amber"],
-            ),
-            (
-                "Engine Servicing Cost",
-                money(engine_service_total),
-                "Sum of the Engine Oil / Servicing column on the Repairs and Servicing tab.",
-                "🛢",
-                BRAND["amber"],
-            ),
-            (
-                "Average Cost per Order",
-                money(avg_operational_cost_per_order) if avg_operational_cost_per_order is not None else "N/A",
-                "Fuel, repairs and engine servicing costs divided by total dispensed orders.",
-                "💸",
-                BRAND["teal"],
-            ),
-        ]
-    )
-
-    section_header(
-        "QoQ — Quarter-on-Quarter Performance",
-        "Current quarter versus the previous quarter (anchored to the Quarter filter, or the latest data). "
-        "Green indicates improvement, red indicates decline; for TAT and Fuel Cost metrics the colours are reversed.",
-    )
-    render_qoq_section(
-        comparison_base, fuel, col_date, col_client, col_fuel_date, col_fuel_cost,
-        selected_quarter, selected_week, selected_month
-    )
-
-    section_header(
-        "Week-on-Week & Month-on-Month Performance",
-        "Green indicates improvement, red indicates decline. For TAT and Fuel Cost metrics the colours are reversed — a decrease is green.",
-    )
-    render_comparison_section(
-        comparison_base, fuel, col_date, col_client, col_fuel_date, col_fuel_cost,
-        selected_week, selected_month
-    )
-
-    section_header("Performance Trend", "Track delivery rate and turnaround over time.")
-    render_performance_trend(filtered)
-
-    section_header("Network Performance")
-    col_a, col_b = st.columns(2)
-    with col_a:
-        reg_summary = (
-            filtered.groupby(col_region, dropna=False)[col_client]
-            .count()
-            .reset_index(name="Orders")
-            .sort_values("Orders", ascending=False)
-        )
-        reg_summary[col_region] = reg_summary[col_region].fillna("Unassigned").astype(str)
-        if reg_summary.empty:
-            show_empty_chart("No regional data is available.")
+        _progs = None
+    programme_rows = []
+    for prog in (_progs if _progs else ["All orders"]):
+        if _progs:
+            c_df = _curr_orders[_curr_orders[col_order_type].astype(str).str.strip() == prog]
+            p_df = _prev_orders[_prev_orders[col_order_type].astype(str).str.strip() == prog]
         else:
-            fig = px.bar(
-                reg_summary,
-                x="Orders",
-                y=col_region,
-                orientation="h",
-                text="Orders",
-                title="Orders by Region / Hub",
-                color_discrete_sequence=[BRAND["blue"]],
-            )
-            fig.update_traces(textposition="outside", cliponaxis=False)
-            fig.update_layout(
-                showlegend=False,
-                height=max(360, min(650, 80 + len(reg_summary) * 36)),
-                xaxis_title="Orders",
-                yaxis_title=None,
-            )
-            st.plotly_chart(plotly_theme(fig), use_container_width=True)
+            c_df, p_df = _curr_orders, _prev_orders
+        c_tat = c_df["Shipping_TAT"].mean() if len(c_df) else None
+        p_tat = p_df["Shipping_TAT"].mean() if len(p_df) else None
+        c_n = int(c_df["Shipping_TAT"].notna().sum()) if len(c_df) else 0
+        p_n = int(p_df["Shipping_TAT"].notna().sum()) if len(p_df) else 0
+        programme_rows.append(
+            {
+                "Programme": prog,
+                prev_col: _hrs(p_tat),
+                curr_col: _hrs(c_tat),
+                "Change in time": _tat_change(c_tat, p_tat),
+                "Deliveries timed (prev / curr)": f"{p_n} / {c_n}",
+            }
+        )
 
-    with col_b:
-        status_summary = filtered[col_status].fillna("Unknown").astype(str).value_counts().reset_index()
-        status_summary.columns = ["Status", "Orders"]
-        if status_summary.empty:
-            show_empty_chart("No status data available.")
+    # --- Slide 3 table: stage turnaround ------------------------------------
+    stage_defs = [
+        ("Order to invoice", "Creation_Invoice_TAT"),
+        ("Invoice to dispatch", "Invoice_Dispatch_TAT"),
+        ("Dispatch to delivery", "Shipping_TAT"),
+        ("Order to delivery", "Creation_Delivery_TAT"),
+    ]
+    stage_rows = []
+    for step, col_tat in stage_defs:
+        c_v = _curr_orders[col_tat].mean() if len(_curr_orders) else None
+        p_v = _prev_orders[col_tat].mean() if len(_prev_orders) else None
+        stage_rows.append(
+            {
+                "Step": step,
+                prev_col: _hrs(p_v),
+                curr_col: _hrs(c_v),
+                "Change in time": _tat_change(c_v, p_v),
+            }
+        )
+    stage_samples_curr = int(
+        _curr_orders[[c for _, c in stage_defs]].notna().all(axis=1).sum()
+    ) if len(_curr_orders) else 0
+    stage_samples_prev = int(
+        _prev_orders[[c for _, c in stage_defs]].notna().all(axis=1).sum()
+    ) if len(_prev_orders) else 0
+
+    # --- Slide 4: fuel -------------------------------------------------------
+    def _fuel_week(start):
+        if fuel is None or not col_fuel_date or not col_fuel_cost:
+            return None
+        return fuel[fuel[col_fuel_date].ge(start) & fuel[col_fuel_date].lt(start + pd.Timedelta(days=7))]
+
+    _fuel_curr = _fuel_week(_wk_start)
+    _fuel_prev = _fuel_week(_prev_start)
+    fuel_total = float(_fuel_curr[col_fuel_cost].sum()) if _fuel_curr is not None and len(_fuel_curr) else 0.0
+    fuel_prev_total = float(_fuel_prev[col_fuel_cost].sum()) if _fuel_prev is not None and len(_fuel_prev) else 0.0
+    fuel_entries = int(_fuel_curr[col_fuel_cost].notna().sum()) if _fuel_curr is not None else 0
+    fuel_vehicles = (
+        int(_fuel_curr[col_fuel_plate].dropna().astype(str).str.strip().str.upper().nunique())
+        if _fuel_curr is not None and col_fuel_plate else 0
+    )
+    fuel_pct = pct_change(fuel_total, fuel_prev_total) if fuel_prev_total else None
+    fuel_top = []
+    if _fuel_curr is not None and len(_fuel_curr) and col_fuel_cost and col_fuel_plate:
+        _ft = (
+            _fuel_curr.dropna(subset=[col_fuel_plate])
+            .assign(_p=lambda x: x[col_fuel_plate].astype(str).str.strip().str.upper())
+            .groupby("_p")[col_fuel_cost].sum()
+            .sort_values(ascending=False)
+            .head(10)
+        )
+        fuel_top = [(plate, float(amt)) for plate, amt in _ft.items() if amt > 0]
+
+    # --- Slide 5: repairs ----------------------------------------------------
+    repair_weekly = []
+    _rp_prev = None
+    for _off in (2, 1, 0):
+        _start = _wk_start - pd.Timedelta(days=7 * _off)
+        if repairs is None or not col_repair_date:
+            _total = 0.0
         else:
-            fig = px.pie(
-                status_summary,
-                names="Status",
-                values="Orders",
-                hole=0.56,
-                title="Fulfillment Status Mix",
-                color_discrete_sequence=[BRAND["green"], BRAND["blue"], BRAND["amber"], BRAND["red"], "#8B5CF6"],
+            _sub = repairs[repairs[col_repair_date].ge(_start) & repairs[col_repair_date].lt(_start + pd.Timedelta(days=7))]
+            _total = float(
+                sum(
+                    pd.to_numeric(_sub[c], errors="coerce").sum()
+                    for c in (col_repair_cost, col_engine_cost)
+                    if c and c in _sub.columns
+                )
             )
-            st.plotly_chart(plotly_theme(fig), use_container_width=True)
+        _wlab = f"W{int((_start + pd.Timedelta(days=4)).isocalendar()[1]):02d}"
+        if _rp_prev is None:
+            _chg = "\u2014"
+        elif _rp_prev == 0:
+            _chg = "No comparison"
+        else:
+            _p = (_total - _rp_prev) / _rp_prev * 100
+            _chg = f"{abs(_p):.0f}% {'lower' if _p < 0 else 'higher'}"
+        repair_weekly.append({"Period": _wlab, "Recorded cost": f"\u20a6{_total:,.0f}", "Weekly change": _chg})
+        _rp_prev = _total
 
-    section_header("Coverage Area Analysis", "Order count and fuel cost grouped by vehicle coverage area (from the Asset Mapping tab).")
-    if col_vehicle:
-        order_area = (
-            filtered.dropna(subset=[col_vehicle])
-            .assign(_area=lambda x: x[col_vehicle].map(
-                lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned")
-            ))
-            .groupby("_area")[col_client]
-            .count()
-            .reset_index(name="Orders")
-        )
-    else:
-        order_area = pd.DataFrame({"_area": ["Unassigned"], "Orders": [len(filtered)]})
+    repair_breakdown = []
+    if repairs is not None and col_repair_date:
+        _sub = repairs[repairs[col_repair_date].ge(_wk_start) & repairs[col_repair_date].lt(_wk_start + pd.Timedelta(days=7))]
+        _group_col = col_repair_desc or col_repair_plate or col_repair_area
+        if _group_col and _group_col in _sub.columns and len(_sub):
+            _costs = pd.to_numeric(_sub[col_repair_cost], errors="coerce").fillna(0) if col_repair_cost and col_repair_cost in _sub.columns else 0
+            if col_engine_cost and col_engine_cost in _sub.columns:
+                _costs = _costs + pd.to_numeric(_sub[col_engine_cost], errors="coerce").fillna(0)
+            _gb = (
+                _sub.assign(_cost=_costs, _g=_sub[_group_col].astype(str).str.strip())
+                .groupby("_g")["_cost"].sum()
+                .sort_values(ascending=False)
+                .head(10)
+            )
+            repair_breakdown = [
+                {"Week work": g, "Recorded cost": f"\u20a6{v:,.0f}"}
+                for g, v in _gb.items() if v > 0
+            ]
 
-    if fuel_view is not None and col_fuel_cost and col_fuel_plate:
-        fuel_area = (
-            fuel_view.dropna(subset=[col_fuel_plate])
-            .assign(_area=lambda x: x[col_fuel_plate].map(
-                lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned")
-            ))
-            .groupby("_area")[col_fuel_cost]
-            .sum()
-            .reset_index(name="Fuel Cost")
-        )
-    else:
-        fuel_area = pd.DataFrame(columns=["_area", "Fuel Cost"])
+    # --- Slide 6: actions ----------------------------------------------------
+    _prep = _wk_end + pd.Timedelta(days=1)
+    action_rows = [
+        {"By when": f"{_prep:%d %b}", "Action": "Agree delivery promises for each service and route", "Proposed owner": "Quadri + operations"},
+        {"By when": f"{_prep + pd.Timedelta(days=3):%d %b}", "Action": "Confirm the oil bill split and pending tyre; complete fuel records", "Proposed owner": "Quadri + Finance"},
+        {"By when": f"{_prep + pd.Timedelta(days=4):%d %b}", "Action": "Review Abuja van repairs and long waits after invoicing", "Proposed owner": "Operations team"},
+        {"By when": f"{_prep + pd.Timedelta(days=7):%d %b}", "Action": "Compare the next full week using the same measures", "Proposed owner": "Operations + analytics"},
+    ]
 
-    area_analysis = pd.merge(order_area, fuel_area, on="_area", how="outer").fillna(0)
-    area_analysis = area_analysis.rename(columns={"_area": "Coverage Area"}).sort_values("Orders", ascending=False)
-    if area_analysis.empty:
-        show_empty_chart("No coverage area data available.")
+    # ------------------------------------------------------------------
+    # ON-PAGE RENDERING
+    # ------------------------------------------------------------------
+    st.caption(f"{week_title} \u2014 compared with {prev_title}")
+    try:
+        from pptx import Presentation as _PptxPresentation  # noqa: F401
+        _pptx_ok = True
+    except ImportError:
+        _pptx_ok = False
+    if not _pptx_ok:
+        st.warning("python-pptx is not installed. Add it to requirements.txt to enable PowerPoint export.")
+
+    _dl_col, _ = st.columns([1, 4])
+    with _dl_col:
+        _export_clicked = st.button("⬇️ Export to PowerPoint", disabled=not _pptx_ok, type="primary", key="weekly_export_btn")
+
+    section_header("Delivery speed after dispatch")
+    if programme_rows:
+        st.dataframe(pd.DataFrame(programme_rows), hide_index=True, use_container_width=True)
     else:
-        fig = go.Figure()
-        fig.add_bar(
-            x=area_analysis["Coverage Area"],
-            y=area_analysis["Orders"],
-            name="Order Count",
-            marker_color=BRAND["blue"],
+        show_empty_chart("No programme delivery data available for the selected weeks.")
+
+    section_header("Order stage turnaround")
+    if stage_rows:
+        st.dataframe(pd.DataFrame(stage_rows), hide_index=True, use_container_width=True)
+        st.caption(f"Deliveries with every time available: {stage_samples_prev} last week; {stage_samples_curr} this week.")
+
+    section_header("Fuel spend")
+    fm1, fm2, fm3 = st.columns(3)
+    fm1.metric(f"Fuel total \u00b7 W{_wk_num:02d}", f"\u20a6{fuel_total:,.0f}")
+    fm2.metric("Fuel entries / vehicles", f"{fuel_entries} / {fuel_vehicles}")
+    fm3.metric(f"vs W{_pwk_num:02d}", f"\u20a6{fuel_prev_total:,.0f}",
+               delta=f"{fuel_pct:+.1f}%" if fuel_pct is not None else "No comparison")
+    if fuel_top:
+        _ft_df = pd.DataFrame(fuel_top, columns=["Vehicle plate", "Fuel amount (\u20a6)"])
+        fig = px.bar(
+            _ft_df.sort_values("Fuel amount (\u20a6)"),
+            x="Fuel amount (\u20a6)",
+            y="Vehicle plate",
+            orientation="h",
+            text="Fuel amount (\u20a6)",
+            title=f"Highest recorded fuel amounts \u00b7 W{_wk_num:02d} (\u20a6)",
+            color_discrete_sequence=[BRAND["green"]],
         )
-        fig.add_bar(
-            x=area_analysis["Coverage Area"],
-            y=area_analysis["Fuel Cost"],
-            name="Fuel Cost (₦)",
-            marker_color=BRAND["green"],
-            yaxis="y2",
-        )
-        fig.update_layout(
-            barmode="group",
-            height=420,
-            yaxis=dict(title="Order Count"),
-            yaxis2=dict(
-                title=dict(text="Fuel Cost (₦)", font=dict(color=BRAND["green"])),
-                overlaying="y",
-                side="right",
-                tickfont=dict(color=BRAND["green"]),
-            ),
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=1, xanchor="right"),
-        )
+        fig.update_traces(textposition="outside", cliponaxis=False)
+        fig.update_layout(showlegend=False, height=max(320, 60 + len(_ft_df) * 34), xaxis_title=None, yaxis_title=None)
         st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
+    section_header("Repair costs")
+    rc1, rc2 = st.columns(2)
+    with rc1:
+        st.dataframe(pd.DataFrame(repair_weekly), hide_index=True, use_container_width=True)
+    with rc2:
+        if repair_breakdown:
+            st.dataframe(pd.DataFrame(repair_breakdown), hide_index=True, use_container_width=True)
+        else:
+            show_empty_chart("No repair records for the current week.")
 
-# ---------------------------------------------------------------------------
-# PAGE 2: WoW / MoM COMPARISON
-# ---------------------------------------------------------------------------
-elif selected_page == ":material/monitoring: WoW / MoM":
-    section_header(
-        "Week-on-Week & Month-on-Month Performance",
-        "Pie-chart share comparison across the core operational KPIs plus fuel cost",
-    )
-    comp_df = comparison_base.copy()
-    anchor = comparison_anchor(comp_df, col_date, selected_week, selected_month)
-    if anchor is not None:
-        ref_date = anchor
-    elif col_date and col_date in comp_df.columns and comp_df[col_date].notna().any():
-        ref_date = comp_df[col_date].max()
-    else:
-        ref_date = pd.Timestamp.today()
+    section_header("What needs to happen next")
+    st.dataframe(pd.DataFrame(action_rows), hide_index=True, use_container_width=True)
+    st.caption(f"Next report: {_wk_start + pd.Timedelta(days=7):%d %b} \u2013 {_wk_end + pd.Timedelta(days=7):%d %b %Y}.")
 
-    # Week boundaries
-    week_start = ref_date - pd.Timedelta(days=(int(ref_date.weekday()) + 1) % 7)
-    prev_week_start = week_start - pd.Timedelta(days=7)
-    prev_week_end = week_start - pd.Timedelta(days=1)
-    curr_week_df = comp_df[(comp_df[col_date] >= week_start) & (comp_df[col_date] <= ref_date)]
-    prev_week_df = comp_df[(comp_df[col_date] >= prev_week_start) & (comp_df[col_date] <= prev_week_end)]
-    curr_week_label = f"W{int((week_start + pd.Timedelta(days=4)).isocalendar()[1]):02d}"
-    prev_week_label = f"W{int((prev_week_start + pd.Timedelta(days=4)).isocalendar()[1]):02d}"
+    # ------------------------------------------------------------------
+    # POWERPOINT EXPORT
+    # ------------------------------------------------------------------
+    def _build_weekly_pptx():
+        from pptx import Presentation
+        from pptx.util import Inches, Pt
+        from pptx.dml.color import RGBColor
 
-    # Month boundaries
-    month_start = ref_date.replace(day=1)
-    prev_month_end = month_start - pd.Timedelta(days=1)
-    prev_month_start = prev_month_end.replace(day=1)
-    curr_month_df = comp_df[(comp_df[col_date] >= month_start) & (comp_df[col_date] <= ref_date)]
-    prev_month_df = comp_df[(comp_df[col_date] >= prev_month_start) & (comp_df[col_date] <= prev_month_end)]
-    curr_month_label = month_start.strftime("%b %Y")
-    prev_month_label = prev_month_start.strftime("%b %Y")
+        HEADER = RGBColor(0x16, 0x86, 0xD9)
+        WHITE = RGBColor(0xFF, 0xFF, 0xFF)
+        DARK = RGBColor(0x0F, 0x23, 0x33)
+        MUTED = RGBColor(0x4A, 0x61, 0x78)
+        prs = Presentation()
+        blank = prs.slide_layouts[6]
 
-    # Week-on-Week
-    st.markdown(
-        f"**📅 Week-on-Week** — {curr_week_label} vs {prev_week_label} &nbsp;|&nbsp; "
-        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
-        f"{week_start:%d %b} – {ref_date:%d %b %Y} vs {prev_week_start:%d %b} – {prev_week_end:%d %b %Y}</span>",
-        unsafe_allow_html=True,
-    )
-    wow_curr = compute_period_kpis(curr_week_df, col_client)
-    wow_prev = compute_period_kpis(prev_week_df, col_client)
-    wow_curr["Fuel Cost"] = fuel_cost_between(fuel, col_fuel_date, col_fuel_cost, week_start, ref_date + pd.Timedelta(days=1))
-    wow_prev["Fuel Cost"] = fuel_cost_between(fuel, col_fuel_date, col_fuel_cost, prev_week_start, week_start)
-    wow_cols = st.columns(len(COMPARE_KPIS))
-    for col, kpi in zip(wow_cols, COMPARE_KPIS):
-        with col:
-            st.plotly_chart(
-                comparison_pie(kpi, wow_curr[kpi], wow_prev[kpi], curr_week_label, prev_week_label),
-                use_container_width=True,
+        def _add_text(slide, text, left, top, width, height, size=14, bold=False, color=DARK):
+            box = slide.shapes.add_textbox(Inches(left), Inches(top), Inches(width), Inches(height))
+            tf = box.text_frame
+            tf.word_wrap = True
+            for i, line in enumerate(text.split("\n")):
+                par = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+                run = par.add_run()
+                run.text = line
+                run.font.size = Pt(size)
+                run.font.bold = bold
+                run.font.color.rgb = color
+            return box
+
+        def _add_table(slide, headers, rows, top=1.6):
+            data = [list(headers)] + [list(r) for r in rows]
+            height = 0.4 * len(data)
+            shape = slide.shapes.add_table(len(data), len(headers), Inches(0.5), Inches(top), Inches(9.0), Inches(height))
+            tbl = shape.table
+            for r, row in enumerate(data):
+                for c, val in enumerate(row):
+                    cell = tbl.cell(r, c)
+                    cell.text = str(val)
+                    for par in cell.text_frame.paragraphs:
+                        for run in par.runs:
+                            run.font.size = Pt(12)
+                            run.font.color.rgb = WHITE if r == 0 else DARK
+                            run.font.bold = r == 0
+                    if r == 0:
+                        cell.fill.solid()
+                        cell.fill.fore_color.rgb = HEADER
+            return tbl
+
+        # Slide 1: cover
+        s = prs.slides.add_slide(blank)
+        _add_text(s, "Delivery performance\nand vehicle costs", 0.8, 1.8, 8.5, 1.9, size=40, bold=True)
+        _add_text(s, week_title, 0.8, 3.8, 8.5, 0.5, size=20)
+        _add_text(s, f"Compared with {prev_title}", 0.8, 4.3, 8.5, 0.4, size=16, color=MUTED)
+        _add_text(s, "What changed, what needs attention, and the next actions", 0.8, 4.8, 8.5, 0.4, size=14, color=MUTED)
+        _add_text(s, f"Prepared {_prep:%d %B %Y}", 0.8, 5.6, 8.5, 0.4, size=12, color=MUTED)
+        _add_text(s, f"Prepared by {st.session_state.get('authenticated_user', 'DrugStoc logistics')}", 0.8, 5.95, 8.5, 0.4, size=12, color=MUTED)
+
+        # Slide 2: dispatch to delivery by programme
+        s = prs.slides.add_slide(blank)
+        _add_text(s, "B2B delivery was faster after dispatch", 0.5, 0.3, 9, 0.7, size=28, bold=True)
+        _add_text(s, "Time shown is dispatch to delivery. Small samples need caution. On-time delivery needs an agreed delivery promise.", 0.5, 1.0, 9, 0.5, size=11, color=MUTED)
+        if programme_rows:
+            _keys = list(programme_rows[0].keys())
+            _add_table(s, _keys, [[r[k] for k in _keys] for r in programme_rows])
+        else:
+            _add_text(s, "No programme delivery data available for the selected weeks.", 0.5, 1.8, 9, 0.4, size=14)
+
+        # Slide 3: stage turnaround
+        s = prs.slides.add_slide(blank)
+        _add_text(s, "Most B2B time is spent before dispatch", 0.5, 0.3, 9, 0.7, size=28, bold=True)
+        _add_text(s, "Hours include nights and weekends. Invoice time uses invoice creation; actual issue time may differ.", 0.5, 1.0, 9, 0.5, size=11, color=MUTED)
+        if stage_rows:
+            _keys = list(stage_rows[0].keys())
+            _add_table(s, _keys, [[r[k] for k in _keys] for r in stage_rows])
+        _add_text(s, f"Deliveries with every time available: {stage_samples_prev} last week; {stage_samples_curr} this week.", 0.5, 4.2, 9, 0.4, size=12, color=MUTED)
+
+        # Slide 4: fuel
+        s = prs.slides.add_slide(blank)
+        _add_text(s, f"Week {_wk_num} fuel spend", 0.5, 0.3, 9, 0.7, size=28, bold=True)
+        _add_text(s, "Figures assumed to be naira; confirm the source unit.", 0.5, 1.0, 9, 0.4, size=11, color=MUTED)
+        _add_text(s, f"\u20a6{fuel_total:,.0f}", 0.5, 1.5, 4, 0.7, size=36, bold=True)
+        _add_text(s, f"{fuel_entries} fuel entries\n{fuel_vehicles} vehicles", 0.5, 2.3, 4, 0.7, size=14, color=MUTED)
+        if fuel_pct is not None:
+            _add_text(s, f"{fuel_pct:+.1f}%", 4.5, 1.5, 4, 0.6, size=24, bold=True, color=MUTED)
+            _add_text(s, f"versus \u20a6{fuel_prev_total:,.0f} last week", 4.5, 2.15, 4, 0.4, size=12, color=MUTED)
+        if fuel_top:
+            _add_text(s, "Highest recorded fuel amounts (\u20a6)", 0.5, 3.3, 9, 0.4, size=14, bold=True)
+            _add_table(s, ["Vehicle plate", "Fuel amount (\u20a6)"], [[p, f"{a:,.0f}"] for p, a in fuel_top], top=3.8)
+        else:
+            _add_text(s, "No fuel records for the current week.", 0.5, 3.3, 9, 0.4, size=14)
+
+        # Slide 5: repairs
+        s = prs.slides.add_slide(blank)
+        _add_text(s, "Recorded repair costs", 0.5, 0.3, 9, 0.7, size=28, bold=True)
+        _add_text(s, "Uses the Maintenance & Repair and Servicing columns of the Repairs and Servicing tab.", 0.5, 1.0, 9, 0.4, size=11, color=MUTED)
+        if repair_weekly:
+            _keys = list(repair_weekly[0].keys())
+            _add_table(s, _keys, [[r[k] for k in _keys] for r in repair_weekly], top=1.5)
+        if repair_breakdown:
+            _keys = list(repair_breakdown[0].keys())
+            _add_table(s, _keys, [[r[k] for k in _keys] for r in repair_breakdown], top=3.6)
+
+        # Slide 6: actions
+        s = prs.slides.add_slide(blank)
+        _add_text(s, "What needs to happen next", 0.5, 0.3, 9, 0.7, size=28, bold=True)
+        _add_text(s, f"Proposed owners and dates. Next report: {_wk_start + pd.Timedelta(days=7):%d %b} \u2013 {_wk_end + pd.Timedelta(days=7):%d %b %Y}.", 0.5, 1.0, 9, 0.4, size=11, color=MUTED)
+        _keys = list(action_rows[0].keys())
+        _add_table(s, _keys, [[r[k] for k in _keys] for r in action_rows], top=1.6)
+        _add_text(s, "Agree the owners today, then review the results next week.", 0.5, 4.6, 9, 0.4, size=12, color=MUTED)
+
+        _buf = io.BytesIO()
+        prs.save(_buf)
+        return _buf.getvalue()
+
+    if _export_clicked and _pptx_ok:
+        try:
+            _pptx_bytes = _build_weekly_pptx()
+            st.download_button(
+                "⬇️ Download PowerPoint",
+                data=_pptx_bytes,
+                file_name=f"DrugStoc_Weekly_Operations_W{_wk_num:02d}_{_wk_start:%Y%m%d}.pptx",
+                mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                key="weekly_export_download",
             )
-
-    st.markdown("---")
-
-    # Month-on-Month
-    st.markdown(
-        f"**🗓️ Month-on-Month** — {curr_month_label} vs {prev_month_label} &nbsp;|&nbsp; "
-        f"<span style='color:{THEME['muted']};font-size:.8rem'>"
-        f"{month_start:%d %b} – {ref_date:%d %b %Y} vs {prev_month_start:%d %b} – {prev_month_end:%d %b %Y}</span>",
-        unsafe_allow_html=True,
-    )
-    mom_curr = compute_period_kpis(curr_month_df, col_client)
-    mom_prev = compute_period_kpis(prev_month_df, col_client)
-    mom_curr["Fuel Cost"] = fuel_cost_between(fuel, col_fuel_date, col_fuel_cost, month_start, ref_date + pd.Timedelta(days=1))
-    mom_prev["Fuel Cost"] = fuel_cost_between(fuel, col_fuel_date, col_fuel_cost, prev_month_start, month_start)
-    mom_cols = st.columns(len(COMPARE_KPIS))
-    for col, kpi in zip(mom_cols, COMPARE_KPIS):
-        with col:
-            st.plotly_chart(
-                comparison_pie(kpi, mom_curr[kpi], mom_prev[kpi], curr_month_label, prev_month_label),
-                use_container_width=True,
-            )
-
-    st.markdown("---")
-    st.caption(
-        "ℹ️ Slice size represents each period's share of the combined total. "
-        "TAT deltas are colour-coded green when turnaround improves (decreases). "
-        "Fuel Cost deltas are reversed (a decrease is green). "
-        "Comparison respects the sidebar slicers (Quarter, Month, Week, Region, Status, Order Type)."
-    )
-
-
+            st.success("Presentation generated \u2014 use the download button above.")
+        except Exception as exc:
+            st.error("PowerPoint export failed.")
+            with st.expander("Technical details"):
+                st.code(str(exc))
 # ---------------------------------------------------------------------------
 # PAGE 3: VEHICLES & ORDER COUNT
 # ---------------------------------------------------------------------------
