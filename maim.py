@@ -2231,28 +2231,28 @@ elif selected_page == ":material/insights: BI Summary":
     render_kpis(
         [
             (
-                "TAT: Order to Invoice",
+                "TAT: Order → Invoice",
                 _hrs_or_na(avg_order_invoice_tat),
                 "Average hours from order creation to invoicing.",
                 "🧾",
                 BRAND["blue"],
             ),
             (
-                "TAT: Invoice to Dispatch",
+                "TAT: Invoice → Dispatch",
                 _hrs_or_na(avg_invoice_dispatch_tat),
                 "Average hours from invoice date to dispatch.",
                 "🚚",
                 BRAND["amber"],
             ),
             (
-                "TAT: Dispatch to Delivery",
+                "TAT: Dispatch → Delivery",
                 _hrs_or_na(avg_dispatch_delivery_tat),
                 "Average hours from dispatch to delivery.",
                 "⏱",
                 BRAND["teal"],
             ),
             (
-                "TAT: Invoice to Delivery",
+                "TAT: Invoice → Delivery",
                 _hrs_or_na(avg_invoice_delivery_tat),
                 "Average hours from invoice date to delivery.",
                 "✅",
