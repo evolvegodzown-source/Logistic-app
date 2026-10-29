@@ -89,19 +89,17 @@ def fri_thu_week(dates):
     """
     Week number, week-start (Friday) and label-year for a datetime Series.
     Weeks run Friday-Thursday and are numbered by the ISO week of the week's
-    Monday, so early January dates are never labelled as the previous year.
+    Friday (so 16-22 Oct 2026 is W42 and 23-29 Oct 2026 is W43).
     """
     week_start = dates - pd.to_timedelta((dates.dt.weekday - 4) % 7, unit="D")
-    monday = week_start + pd.Timedelta(days=3)
-    iso = monday.dt.isocalendar()
+    iso = week_start.dt.isocalendar()
     return iso["week"], week_start, iso["year"]
 
 
 def week_start_from_label(year, week):
-    """Friday start of the Fri-Thu week numbered (year, week) by its Monday."""
+    """Friday start of the Fri-Thu week numbered (year, week) by its Friday."""
     iso_monday = pd.Timestamp.fromisocalendar(int(year), int(week), 1)
-    thursday = iso_monday + pd.Timedelta(days=3)
-    return thursday - pd.Timedelta(days=(int(thursday.weekday()) - 4) % 7)
+    return iso_monday + pd.Timedelta(days=4)
 
 
 def build_timestamp(data_df, date_c, time_c):
@@ -1650,8 +1648,8 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
     _prev_start = _wk_start - pd.Timedelta(days=7)
     _wk_end = _wk_start + pd.Timedelta(days=6)
     _pwk_end = _prev_start + pd.Timedelta(days=6)
-    _wk_num = int((_wk_start + pd.Timedelta(days=3)).isocalendar()[1])
-    _pwk_num = int((_prev_start + pd.Timedelta(days=3)).isocalendar()[1])
+    _wk_num = int(_wk_start.isocalendar()[1])
+    _pwk_num = int(_prev_start.isocalendar()[1])
     week_title = f"Week {_wk_num}: {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%B %Y}"
     prev_title = f"Week {_pwk_num}: {_prev_start.day}\u2013{_pwk_end.day} {_pwk_end:%B %Y}"
     curr_col = f"W{_wk_num:02d} / {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%b}"
@@ -1773,7 +1771,7 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
                     if c and c in _sub.columns
                 )
             )
-        _wlab = f"W{int((_start + pd.Timedelta(days=3)).isocalendar()[1]):02d}"
+        _wlab = f"W{int(_start.isocalendar()[1]):02d}"
         if _rp_prev is None:
             _chg = "\u2014"
         elif _rp_prev == 0:
