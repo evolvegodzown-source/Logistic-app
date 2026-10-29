@@ -85,23 +85,23 @@ def get_login_credentials():
 # ============================================================================
 # HELPERS — DATE / WEEK
 # ============================================================================
-def sun_sat_week(dates):
+def fri_thu_week(dates):
     """
-    Week number, week-start (Sunday) and label-year for a datetime Series.
-    Weeks run Sunday-Saturday and are numbered by the ISO week of the week's
-    Thursday, so early January dates are never labelled as the previous year.
+    Week number, week-start (Friday) and label-year for a datetime Series.
+    Weeks run Friday-Thursday and are numbered by the ISO week of the week's
+    Monday, so early January dates are never labelled as the previous year.
     """
-    week_start = dates - pd.to_timedelta((dates.dt.weekday + 1) % 7, unit="D")
-    thursday = week_start + pd.Timedelta(days=4)
-    iso = thursday.dt.isocalendar()
+    week_start = dates - pd.to_timedelta((dates.dt.weekday - 4) % 7, unit="D")
+    monday = week_start + pd.Timedelta(days=3)
+    iso = monday.dt.isocalendar()
     return iso["week"], week_start, iso["year"]
 
 
 def week_start_from_label(year, week):
-    """Sunday start of the Sun-Sat week numbered (year, week) by its Thursday."""
+    """Friday start of the Fri-Thu week numbered (year, week) by its Monday."""
     iso_monday = pd.Timestamp.fromisocalendar(int(year), int(week), 1)
     thursday = iso_monday + pd.Timedelta(days=3)
-    return thursday - pd.Timedelta(days=(int(thursday.weekday()) + 1) % 7)
+    return thursday - pd.Timedelta(days=(int(thursday.weekday()) - 4) % 7)
 
 
 def build_timestamp(data_df, date_c, time_c):
@@ -315,7 +315,7 @@ def comparison_periods(data_df, col_date, selected_week, selected_month):
     if anchor is None:
         return None
     latest_date = anchor.normalize()
-    current_week_start = latest_date - pd.Timedelta(days=(latest_date.weekday() + 1) % 7)
+    current_week_start = latest_date - pd.Timedelta(days=(latest_date.weekday() - 4) % 7)
     current_month_start = latest_date.replace(day=1)
     previous_month_end = current_month_start - pd.Timedelta(days=1)
     return {
@@ -576,7 +576,7 @@ def render_performance_trend(data_df):
     if date_granularity == "Week":
         trend_df["Period"] = (
             trend_df["Created_DT"]
-            - pd.to_timedelta((trend_df["Created_DT"].dt.weekday + 1) % 7, unit="D")
+            - pd.to_timedelta((trend_df["Created_DT"].dt.weekday - 4) % 7, unit="D")
         ).dt.normalize()
         period_format = "%d %b %Y"
     else:
@@ -1238,7 +1238,7 @@ df = df_raw.copy()
 # Date handling
 if col_date and col_date in df.columns:
     df[col_date] = pd.to_datetime(df[col_date], errors="coerce")
-    _wk_num, _wk_start, _wk_year = sun_sat_week(df[col_date])
+    _wk_num, _wk_start, _wk_year = fri_thu_week(df[col_date])
     df["Week"] = _wk_num.fillna(0).astype(int)
     df["Year"] = df[col_date].dt.year.fillna(0).astype(int)
     df["Month"] = df[col_date].dt.month.fillna(0).astype(int)
@@ -1319,7 +1319,7 @@ if fuel_raw is not None and not fuel_raw.empty:
             .str.replace(r"^(\d{4})Q(\d)$", r"Q\2 \1", regex=True)
             .fillna("Unassigned Date")
         )
-        _fwk_num, _fwk_start, _fwk_year = sun_sat_week(fuel[col_fuel_date])
+        _fwk_num, _fwk_start, _fwk_year = fri_thu_week(fuel[col_fuel_date])
         fuel["Fuel Week"] = _fwk_num.fillna(0).astype(int)
         fuel["Fuel Year"] = _fwk_start.dt.year.fillna(0).astype(int)
         fuel["Fuel Week Label"] = (
@@ -1407,7 +1407,7 @@ if repairs_raw is not None and not repairs_raw.empty:
             .str.replace(r"^(\d{4})Q(\d)$", r"Q\2 \1", regex=True)
             .fillna("Unassigned Date")
         )
-        _rwk_num, _rwk_start, _rwk_year = sun_sat_week(repairs[col_repair_date])
+        _rwk_num, _rwk_start, _rwk_year = fri_thu_week(repairs[col_repair_date])
         repairs["Repair Week"] = _rwk_num.fillna(0).astype(int)
         repairs["Repair Year"] = _rwk_start.dt.year.fillna(0).astype(int)
         repairs["Repair Week Label"] = (
@@ -1476,9 +1476,9 @@ if access is not None:
     _last_status = access.groupby("SO")["Status"].last()
     access["Returned_Order"] = access["SO"].isin(set(_last_status[_last_status == "Returned"].index))
 
-    # Sun-Sat reporting weeks on delivery date (PA code date as fallback).
+    # Fri-Thu reporting weeks on delivery date (PA code date as fallback).
     _aw = access["_attempt_order"]
-    _awk_num, _awk_start, _awk_year = sun_sat_week(_aw)
+    _awk_num, _awk_start, _awk_year = fri_thu_week(_aw)
     access["Week"] = _awk_num.fillna(0).astype(int)
     access["Year"] = _awk_start.dt.year.fillna(0).astype(int)
     access["Week Label"] = (
@@ -1644,14 +1644,14 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
         st.info("No dated shipment records are available to build the weekly presentation.")
         st.stop()
 
-    # Sun-Sat reporting weeks
+    # Fri-Thu reporting weeks
     _ref = _anchor.normalize()
-    _wk_start = _ref - pd.Timedelta(days=(_ref.weekday() + 1) % 7)
+    _wk_start = _ref - pd.Timedelta(days=(_ref.weekday() - 4) % 7)
     _prev_start = _wk_start - pd.Timedelta(days=7)
     _wk_end = _wk_start + pd.Timedelta(days=6)
     _pwk_end = _prev_start + pd.Timedelta(days=6)
-    _wk_num = int((_wk_start + pd.Timedelta(days=4)).isocalendar()[1])
-    _pwk_num = int((_prev_start + pd.Timedelta(days=4)).isocalendar()[1])
+    _wk_num = int((_wk_start + pd.Timedelta(days=3)).isocalendar()[1])
+    _pwk_num = int((_prev_start + pd.Timedelta(days=3)).isocalendar()[1])
     week_title = f"Week {_wk_num}: {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%B %Y}"
     prev_title = f"Week {_pwk_num}: {_prev_start.day}\u2013{_pwk_end.day} {_pwk_end:%B %Y}"
     curr_col = f"W{_wk_num:02d} / {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%b}"
@@ -1773,7 +1773,7 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
                     if c and c in _sub.columns
                 )
             )
-        _wlab = f"W{int((_start + pd.Timedelta(days=4)).isocalendar()[1]):02d}"
+        _wlab = f"W{int((_start + pd.Timedelta(days=3)).isocalendar()[1]):02d}"
         if _rp_prev is None:
             _chg = "\u2014"
         elif _rp_prev == 0:
@@ -2836,7 +2836,7 @@ elif selected_page == ":material/receipt_long: Access Orders":
             ]
         )
 
-        section_header("Week-on-Week Trend", "Sun-Sat reporting weeks, based on delivery date.")
+        section_header("Week-on-Week Trend", "Fri-Thu reporting weeks, based on delivery date.")
         wow = (
             av.assign(
                 FirstAttemptDeliveries=((av["Attempt"] == 1) & delivered_mask).astype(int),
