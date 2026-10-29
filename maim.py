@@ -198,7 +198,7 @@ def show_empty_chart(message):
 # ============================================================================
 # HELPERS — KPI CARDS & SECTIONS
 # ============================================================================
-def kpi_card(label, value, description, icon="•", accent=None):
+def kpi_card(label, value, description, icon="•", accent=None, weekly=None):
     accent = accent or BRAND["blue"]
     if accent == BRAND["green"]:
         soft = "rgba(16,185,129,.12)"
@@ -208,6 +208,28 @@ def kpi_card(label, value, description, icon="•", accent=None):
         soft = "rgba(239,68,68,.12)"
     else:
         soft = "rgba(22,134,217,.12)"
+    weekly_html = ""
+    if weekly:
+        cw_txt = f"{weekly['cw']:.1f}h" if weekly.get("cw") is not None else "N/A"
+        pw_txt = f"{weekly['pw']:.1f}h" if weekly.get("pw") is not None else "N/A"
+        delta = weekly.get("delta")
+        if delta is None:
+            delta_html = (
+                f"<span style='color:{THEME['muted']};font-size:.75rem;font-weight:800;'>Δ N/A</span>"
+            )
+        else:
+            up = delta >= 0
+            delta_color = BRAND["red"] if up else BRAND["green"]
+            arrow = "▲" if up else "▼"
+            delta_html = (
+                f"<span style='color:{delta_color};'>{arrow} {abs(delta):.1f}% WoW</span>"
+            )
+        weekly_html = f"""
+            <div class="kpi-weekly">
+                <div class="kpi-weekly-row"><span>CW · {cw_txt}</span><span>PW · {pw_txt}</span></div>
+                <div class="kpi-delta">{delta_html}</div>
+            </div>
+        """
     return f"""
         <div class="kpi-card" style="--kpi-accent:{accent};--kpi-soft:{soft};">
             <div class="kpi-top">
@@ -215,6 +237,7 @@ def kpi_card(label, value, description, icon="•", accent=None):
                 <div class="kpi-icon">{icon}</div>
             </div>
             <div class="kpi-value">{value}</div>
+            {weekly_html}
         </div>
     """
 
@@ -224,10 +247,11 @@ def render_kpis(cards):
         row = cards[row_start : row_start + 4]
         cols = st.columns(4)
         for col, card in zip(cols, row):
-            label, value, description, icon, accent = card
+            label, value, description, icon, accent, *extra = card
+            weekly = extra[0] if extra else None
             with col:
                 st.markdown(
-                    kpi_card(label=label, value=value, description=description, icon=icon, accent=accent),
+                    kpi_card(label=label, value=value, description=description, icon=icon, accent=accent, weekly=weekly),
                     unsafe_allow_html=True,
                 )
 
@@ -852,7 +876,7 @@ st.markdown(
         .kpi-card {{
             position: relative;
             overflow: hidden;
-            height: 118px;
+            height: auto;
             min-height: 118px;
             box-sizing: border-box;
             background: var(--ds-surface);
@@ -906,6 +930,24 @@ st.markdown(
             overflow: hidden;
             text-overflow: ellipsis;
             margin-top: 11px;
+        }}
+        .kpi-weekly {{
+            margin-top: 10px;
+            border-top: 1px dashed var(--ds-border);
+            padding-top: 7px;
+        }}
+        .kpi-weekly-row {{
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            color: var(--ds-muted) !important;
+            font-size: .72rem;
+            font-weight: 700;
+        }}
+        .kpi-delta {{
+            font-size: .8rem;
+            font-weight: 900;
+            margin-top: 4px;
         }}
         .section-head {{
             display: flex;
@@ -2220,44 +2262,76 @@ elif selected_page == ":material/insights: BI Summary":
     # OPERATIONAL TAT — first subheading on the BI Summary tab
     # ------------------------------------------------------------------
     section_header("Operational TAT")
-    avg_order_invoice_tat = filtered["Creation_Invoice_TAT"].mean()
-    avg_invoice_dispatch_tat = filtered["Invoice_Dispatch_TAT"].mean()
-    avg_dispatch_delivery_tat = filtered["Shipping_TAT"].mean()
-    avg_invoice_delivery_tat = filtered["Invoice_Delivery_TAT"].mean()
+
+    # Order -> Invoice is measured from 1 Oct 2026 onwards only
+    ORDER_INVOICE_START = pd.Timestamp("2026-10-01")
+    if "Created_DT" in filtered.columns:
+        order_invoice_orders = filtered[filtered["Created_DT"].ge(ORDER_INVOICE_START)]
+    else:
+        order_invoice_orders = filtered
+
+    _tat_periods = comparison_periods(filtered, col_date, selected_week, selected_month)
+    if _tat_periods is not None:
+        _curr_mask, _prev_mask = _tat_periods["WoW"][0], _tat_periods["WoW"][1]
+    else:
+        _curr_mask = _prev_mask = None
+
+    def _weekly_payload(frame, tat_col):
+        """Current-week and previous-week averages plus WoW delta (higher TAT = worse)."""
+        cw = pw = delta = None
+        if _curr_mask is not None and len(frame):
+            cw_frame = frame.loc[frame.index.intersection(_curr_mask.index[_curr_mask])]
+            pw_frame = frame.loc[frame.index.intersection(_prev_mask.index[_prev_mask])]
+            cw = cw_frame[tat_col].mean() if len(cw_frame) else None
+            pw = pw_frame[tat_col].mean() if len(pw_frame) else None
+            if cw is not None and pw is not None and pd.notna(cw) and pd.notna(pw) and pw != 0:
+                delta = (cw - pw) / abs(pw) * 100.0
+        return {"cw": cw, "pw": pw, "delta": delta}
 
     def _hrs_or_na(value):
-        return f"{value:.1f} hrs" if pd.notna(value) else "N/A"
+        return f"{value:.1f} hrs" if value is not None and pd.notna(value) else "N/A"
 
+    tat_kpis = [
+        (
+            "TAT: Order → Invoice",
+            order_invoice_orders,
+            "Creation_Invoice_TAT",
+            "🧾",
+            BRAND["blue"],
+        ),
+        (
+            "TAT: Invoice → Dispatch",
+            filtered,
+            "Invoice_Dispatch_TAT",
+            "🚚",
+            BRAND["amber"],
+        ),
+        (
+            "TAT: Dispatch → Delivery",
+            filtered,
+            "Shipping_TAT",
+            "⏱",
+            BRAND["teal"],
+        ),
+        (
+            "TAT: Invoice → Delivery",
+            filtered,
+            "Invoice_Delivery_TAT",
+            "✅",
+            BRAND["green"],
+        ),
+    ]
     render_kpis(
         [
             (
-                "TAT: Order → Invoice",
-                _hrs_or_na(avg_order_invoice_tat),
-                "Average hours from order creation to invoicing.",
-                "🧾",
-                BRAND["blue"],
-            ),
-            (
-                "TAT: Invoice → Dispatch",
-                _hrs_or_na(avg_invoice_dispatch_tat),
-                "Average hours from invoice date to dispatch.",
-                "🚚",
-                BRAND["amber"],
-            ),
-            (
-                "TAT: Dispatch → Delivery",
-                _hrs_or_na(avg_dispatch_delivery_tat),
-                "Average hours from dispatch to delivery.",
-                "⏱",
-                BRAND["teal"],
-            ),
-            (
-                "TAT: Invoice → Delivery",
-                _hrs_or_na(avg_invoice_delivery_tat),
-                "Average hours from invoice date to delivery.",
-                "✅",
-                BRAND["green"],
-            ),
+                label,
+                _hrs_or_na(frame[tat_col].mean()),
+                "",
+                icon,
+                accent,
+                _weekly_payload(frame, tat_col),
+            )
+            for label, frame, tat_col, icon, accent in tat_kpis
         ]
     )
 
