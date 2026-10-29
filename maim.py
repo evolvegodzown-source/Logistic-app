@@ -2262,8 +2262,55 @@ elif selected_page == ":material/insights: BI Summary":
     )
 
     section_header(
-        "BI Summary",
-        "Asset mapping from the ASSET MAPPING tab of the logistics_DB workbook — previous calendar month.",
+        "Asset Summary",
+        "Operational assets and deliveries from the SHIPMENT DATA tab, plus asset mapping from the ASSET MAPPING tab of the logistics_DB workbook.",
+    )
+
+    # Date-filtered KPIs from the SHIPMENT DATA tab
+    asset_summary_orders = df.copy()
+    if col_date and col_date in asset_summary_orders.columns:
+        _dated = asset_summary_orders[col_date].dropna()
+        if not _dated.empty:
+            _min_date, _max_date = _dated.min().date(), _dated.max().date()
+            _picked = st.date_input(
+                "Filter by date",
+                value=(_min_date, _max_date),
+                min_value=_min_date,
+                max_value=_max_date,
+                key="asset_summary_date_filter",
+            )
+            if isinstance(_picked, (tuple, list)) and len(_picked) == 2:
+                _start, _end = pd.Timestamp(_picked[0]), pd.Timestamp(_picked[1])
+                asset_summary_orders = asset_summary_orders[
+                    asset_summary_orders[col_date].ge(_start)
+                    & asset_summary_orders[col_date].lt(_end + pd.Timedelta(days=1))
+                ]
+
+    if col_vehicle and col_vehicle in asset_summary_orders.columns:
+        _plates = asset_summary_orders[col_vehicle].dropna().astype(str).str.strip().str.upper()
+        total_operational_assets = int(_plates[_plates != ""].nunique())
+    else:
+        total_operational_assets = 0
+    _delivered_orders = asset_summary_orders[asset_summary_orders["Is Delivered"]]
+    total_deliveries = int(_delivered_orders[col_client].count()) if col_client else len(_delivered_orders)
+
+    render_kpis(
+        [
+            (
+                "Total Operational Assets",
+                fmt_num(total_operational_assets),
+                "Distinct plate numbers on the SHIPMENT DATA tab within the selected dates.",
+                "🚛",
+                BRAND["blue"],
+            ),
+            (
+                "Total Deliveries",
+                fmt_num(total_deliveries),
+                'Count of Client Name where Status = "Delivered" within the selected dates.',
+                "📦",
+                BRAND["green"],
+            ),
+        ]
     )
     ASSET_TYPE_COLORS = {
         "BIKE": BRAND["green"],
@@ -2304,12 +2351,6 @@ elif selected_page == ":material/insights: BI Summary":
             prev = am
             st.caption("No DATE column found in the ASSET MAPPING tab — showing all records.")
 
-        if col_am_qty:
-            total_assets = float(pd.to_numeric(prev[col_am_qty], errors="coerce").sum())
-            total_desc = f"Sum of Quantity for {prev_label}."
-        else:
-            total_assets = float(pd.to_numeric(prev[area_cols], errors="coerce").sum().sum()) if area_cols else 0.0
-            total_desc = f"Assets mapped for {prev_label}."
         area_counts = pd.DataFrame(
             {
                 "Business Area": area_cols,
@@ -2334,13 +2375,6 @@ elif selected_page == ":material/insights: BI Summary":
 
         render_kpis(
             [
-                (
-                    "Total Assets",
-                    fmt_num(total_assets),
-                    total_desc,
-                    "🚚",
-                    BRAND["blue"],
-                ),
                 (
                     "Business Areas",
                     fmt_num(area_counts.shape[0]),
