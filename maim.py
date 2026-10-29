@@ -2238,6 +2238,55 @@ elif selected_page == ":material/fact_check: Audit Data":
 # PAGE: BI SUMMARY — Asset Mapping
 # ---------------------------------------------------------------------------
 elif selected_page == ":material/insights: BI Summary":
+    # ------------------------------------------------------------------
+    # LOGISTICS COSTS — first subheading on the BI Summary tab
+    # ------------------------------------------------------------------
+    repairs_view = repairs.copy() if repairs is not None else None
+    if repairs_view is not None:
+        if selected_quarter != "All Quarters" and "Repair Quarter Label" in repairs_view.columns:
+            repairs_view = repairs_view[repairs_view["Repair Quarter Label"] == selected_quarter]
+        if selected_month != "All Months" and "Repair Month Label" in repairs_view.columns:
+            repairs_view = repairs_view[repairs_view["Repair Month Label"] == selected_month]
+        if selected_week != "All Weeks" and "Repair Week Label" in repairs_view.columns:
+            repairs_view = repairs_view[repairs_view["Repair Week Label"] == selected_week]
+
+    bi_fuel_total = fuel_view[col_fuel_cost].sum() if (fuel_view is not None and col_fuel_cost) else 0.0
+    bi_repair_total = repairs_view[col_repair_cost].sum() if (repairs_view is not None and col_repair_cost) else 0.0
+    bi_engine_total = repairs_view[col_engine_cost].sum() if (repairs_view is not None and col_engine_cost) else 0.0
+    bi_maintenance_total = bi_repair_total + bi_engine_total
+    bi_logistics_total = bi_fuel_total + bi_maintenance_total
+
+    section_header(
+        "Logistics Costs",
+        "Fuel spend from the Fuel tab and maintenance & repair spend from the Repairs and Servicing tab "
+        "of the logistics_DB workbook (respects the Quarter/Month/Week filters).",
+    )
+    render_kpis(
+        [
+            (
+                "Total Logistics Cost",
+                money(bi_logistics_total),
+                "Combined fuel, maintenance, repair and engine servicing spend for the selected period.",
+                "💸",
+                BRAND["navy"],
+            ),
+            (
+                "Total Fuel Cost",
+                money(bi_fuel_total),
+                "Sum of the fueling cost column on the Fuel tab (filtered view).",
+                "⛽",
+                BRAND["green"],
+            ),
+            (
+                "Maintenance and Repair Cost",
+                money(bi_maintenance_total),
+                "Sum of the Maintenance & Repair and Servicing columns on the Repairs and Servicing tab.",
+                "🔧",
+                BRAND["amber"],
+            ),
+        ]
+    )
+
     section_header(
         "BI Summary",
         "Asset mapping from the ASSET MAPPING tab of the logistics_DB workbook — previous calendar month.",
