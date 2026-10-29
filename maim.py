@@ -215,7 +215,6 @@ def kpi_card(label, value, description, icon="•", accent=None):
                 <div class="kpi-icon">{icon}</div>
             </div>
             <div class="kpi-value">{value}</div>
-            <div class="kpi-description">{description}</div>
         </div>
     """
 
@@ -238,7 +237,6 @@ def section_header(title, note=""):
         f"""
         <div class="section-head">
             <div class="section-title">{title}</div>
-            <div class="section-note">{note}</div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -832,11 +830,6 @@ st.markdown(
             font-weight: 900;
             margin: 0;
         }}
-        .hero-subtitle {{
-            color: var(--ds-muted) !important;
-            margin: 6px 0 0 0;
-            font-size: .95rem;
-        }}
         .status-pill {{
             display: inline-flex;
             align-items: center;
@@ -859,8 +852,8 @@ st.markdown(
         .kpi-card {{
             position: relative;
             overflow: hidden;
-            height: 154px;
-            min-height: 154px;
+            height: 118px;
+            min-height: 118px;
             box-sizing: border-box;
             background: var(--ds-surface);
             border: 1px solid var(--ds-border);
@@ -914,16 +907,6 @@ st.markdown(
             text-overflow: ellipsis;
             margin-top: 11px;
         }}
-        .kpi-description {{
-            color: var(--ds-muted) !important;
-            font-size: .75rem;
-            line-height: 1.32;
-            margin-top: 7px;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }}
         .section-head {{
             display: flex;
             align-items: center;
@@ -936,10 +919,6 @@ st.markdown(
             font-size: 1.05rem;
             font-weight: 900;
             margin: 0;
-        }}
-        .section-note {{
-            color: var(--ds-muted) !important;
-            font-size: .76rem;
         }}
         .comparison-legend {{
             display: flex;
@@ -1517,10 +1496,6 @@ st.markdown(
             <div>
                 <div class="eyebrow">Healthcare Supply Chain Monitor</div>
                 <div class="hero-title">DrugStoc Pharma Logistics Dashboard</div>
-                <div class="hero-subtitle">
-                    Executive visibility across order fulfillment, delivery turnaround,
-                    shipment volume and field-captain performance.
-                </div>
                 <div class="status-pill">
                     <span class="status-dot"></span>
                     Live operational view
@@ -1540,7 +1515,6 @@ st.markdown(
     f"""
     <div class="section-head" style="margin-top:0">
         <div class="section-title">🎛️ Filters</div>
-        <div class="section-note">Slicers apply to every page below</div>
     </div>
     """,
     unsafe_allow_html=True,
