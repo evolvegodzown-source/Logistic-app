@@ -1228,6 +1228,10 @@ df["Shipping_TAT"] = ((df["Delivery_DT"] - df["Dispatch_DT"]).dt.total_seconds()
 df["Shipping_TAT"] = df["Shipping_TAT"].apply(lambda x: x if pd.notna(x) and x >= 0 else np.nan)
 df["Invoice_Dispatch_TAT"] = ((df["Dispatch_DT"] - df["Invoice_DT"]).dt.total_seconds() / 3600.0)
 df["Invoice_Dispatch_TAT"] = df["Invoice_Dispatch_TAT"].apply(lambda x: x if pd.notna(x) and x >= 0 else np.nan)
+df["Creation_Invoice_TAT"] = ((df["Invoice_DT"] - df["Created_DT"]).dt.total_seconds() / 3600.0)
+df["Creation_Invoice_TAT"] = df["Creation_Invoice_TAT"].apply(lambda x: x if pd.notna(x) and x >= 0 else np.nan)
+df["Invoice_Delivery_TAT"] = ((df["Delivery_DT"] - df["Invoice_DT"]).dt.total_seconds() / 3600.0)
+df["Invoice_Delivery_TAT"] = df["Invoice_Delivery_TAT"].apply(lambda x: x if pd.notna(x) and x >= 0 else np.nan)
 
 # Status mapping
 if col_status and col_status in df.columns:
@@ -2213,7 +2217,52 @@ elif selected_page == ":material/fact_check: Audit Data":
 # ---------------------------------------------------------------------------
 elif selected_page == ":material/insights: BI Summary":
     # ------------------------------------------------------------------
-    # LOGISTICS COSTS — first subheading on the BI Summary tab
+    # OPERATIONAL TAT — first subheading on the BI Summary tab
+    # ------------------------------------------------------------------
+    section_header("Operational TAT")
+    avg_order_invoice_tat = filtered["Creation_Invoice_TAT"].mean()
+    avg_invoice_dispatch_tat = filtered["Invoice_Dispatch_TAT"].mean()
+    avg_dispatch_delivery_tat = filtered["Shipping_TAT"].mean()
+    avg_invoice_delivery_tat = filtered["Invoice_Delivery_TAT"].mean()
+
+    def _hrs_or_na(value):
+        return f"{value:.1f} hrs" if pd.notna(value) else "N/A"
+
+    render_kpis(
+        [
+            (
+                "TAT: Order to Invoice",
+                _hrs_or_na(avg_order_invoice_tat),
+                "Average hours from order creation to invoicing.",
+                "🧾",
+                BRAND["blue"],
+            ),
+            (
+                "TAT: Invoice to Dispatch",
+                _hrs_or_na(avg_invoice_dispatch_tat),
+                "Average hours from invoice date to dispatch.",
+                "🚚",
+                BRAND["amber"],
+            ),
+            (
+                "TAT: Dispatch to Delivery",
+                _hrs_or_na(avg_dispatch_delivery_tat),
+                "Average hours from dispatch to delivery.",
+                "⏱",
+                BRAND["teal"],
+            ),
+            (
+                "TAT: Invoice to Delivery",
+                _hrs_or_na(avg_invoice_delivery_tat),
+                "Average hours from invoice date to delivery.",
+                "✅",
+                BRAND["green"],
+            ),
+        ]
+    )
+
+    # ------------------------------------------------------------------
+    # LOGISTICS COSTS
     # ------------------------------------------------------------------
     repairs_view = repairs.copy() if repairs is not None else None
     if repairs_view is not None:
