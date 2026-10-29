@@ -2230,6 +2230,10 @@ elif selected_page == ":material/insights: BI Summary":
     bi_maintenance_total = bi_repair_total + bi_engine_total
     bi_logistics_total = bi_fuel_total + bi_maintenance_total
 
+    _bi_delivered = filtered[filtered["Is Delivered"]]
+    bi_deliveries = int(_bi_delivered[col_client].count()) if col_client else len(_bi_delivered)
+    avg_logistics_cost = bi_logistics_total / bi_deliveries if bi_deliveries else None
+
     section_header(
         "Logistics Costs",
         "Fuel spend from the Fuel tab and maintenance & repair spend from the Repairs and Servicing tab "
@@ -2257,6 +2261,13 @@ elif selected_page == ":material/insights: BI Summary":
                 "Sum of the Maintenance & Repair and Servicing columns on the Repairs and Servicing tab.",
                 "🔧",
                 BRAND["amber"],
+            ),
+            (
+                "Average Logistic Cost",
+                money(avg_logistics_cost) if avg_logistics_cost is not None else "N/A",
+                "Total Logistics Cost divided by Total Deliveries.",
+                "💸",
+                BRAND["teal"],
             ),
         ]
     )
