@@ -210,8 +210,11 @@ def kpi_card(label, value, description, icon="•", accent=None, weekly=None):
         soft = "rgba(22,134,217,.12)"
     weekly_html = ""
     if weekly:
-        cw_txt = f"{weekly['cw']:.1f}h" if weekly.get("cw") is not None else "N/A"
-        pw_txt = f"{weekly['pw']:.1f}h" if weekly.get("pw") is not None else "N/A"
+        def _fmt_h(v):
+            return f"{v:.1f}h" if v is not None and pd.notna(v) else "N/A"
+
+        cw_txt = _fmt_h(weekly.get("cw"))
+        pw_txt = _fmt_h(weekly.get("pw"))
         delta = weekly.get("delta")
         if delta is None:
             delta_html = (
@@ -2284,7 +2287,15 @@ elif selected_page == ":material/insights: BI Summary":
             pw_frame = frame.loc[frame.index.intersection(_prev_mask.index[_prev_mask])]
             cw = cw_frame[tat_col].mean() if len(cw_frame) else None
             pw = pw_frame[tat_col].mean() if len(pw_frame) else None
-            if cw is not None and pw is not None and pd.notna(cw) and pd.notna(pw) and pw != 0:
+            if cw is not None and pd.notna(cw):
+                cw = round(float(cw), 1)
+            else:
+                cw = None
+            if pw is not None and pd.notna(pw):
+                pw = round(float(pw), 1)
+            else:
+                pw = None
+            if cw is not None and pw is not None and pw != 0:
                 delta = (cw - pw) / abs(pw) * 100.0
         return {"cw": cw, "pw": pw, "delta": delta}
 
