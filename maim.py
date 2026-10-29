@@ -102,6 +102,23 @@ def week_start_from_label(year, week):
     return iso_monday + pd.Timedelta(days=4)
 
 
+def week_label_with_span(week_num, week_year, week_start):
+    """Vectorised Fri-Thu week labels with the date span, e.g. 'W42 - 2026 (16 Oct–22 Oct)'."""
+    end = week_start + pd.Timedelta(days=6)
+    start_day = week_start.dt.day.fillna(0).astype(int).astype(str)
+    end_day = end.dt.day.fillna(0).astype(int).astype(str)
+    start_mon = week_start.dt.strftime("%b").fillna("")
+    end_mon = end.dt.strftime("%b").fillna("")
+    label = (
+        "W" + week_num.astype(str).str.zfill(2)
+        + " - " + week_year.fillna(0).astype(int).astype(str)
+    )
+    span = (
+        " (" + start_day + " " + start_mon + "\u2013" + end_day + " " + end_mon + ")"
+    )
+    return label + span.where(week_start.notna(), "")
+
+
 def build_timestamp(data_df, date_c, time_c):
     """Combine a date column and optional time column into a datetime Series."""
     if not date_c or date_c not in data_df.columns:
@@ -288,7 +305,7 @@ def comparison_anchor(data_df, col_date, selected_week, selected_month):
     if selected_week != "All Weeks":
         try:
             _wk = int(selected_week[1:3])
-            _yr = int(selected_week.split("-")[-1])
+            _yr = int(selected_week.split(" - ")[1].split()[0])
             return week_start_from_label(_yr, _wk)
         except (ValueError, TypeError):
             pass
@@ -1246,10 +1263,7 @@ if col_date and col_date in df.columns:
         .str.replace(r"^(\d{4})Q(\d)$", r"Q\2 \1", regex=True)
         .fillna("Unassigned Date")
     )
-    df["Week Label"] = (
-        "W" + df["Week"].astype(str).str.zfill(2)
-        + " - " + _wk_year.fillna(0).astype(int).astype(str)
-    )
+    df["Week Label"] = week_label_with_span(df["Week"], _wk_year, _wk_start)
 else:
     df["Month Label"] = "Unassigned Date"
     df["Week Label"] = "Unassigned Date"
@@ -1320,10 +1334,7 @@ if fuel_raw is not None and not fuel_raw.empty:
         _fwk_num, _fwk_start, _fwk_year = fri_thu_week(fuel[col_fuel_date])
         fuel["Fuel Week"] = _fwk_num.fillna(0).astype(int)
         fuel["Fuel Year"] = _fwk_start.dt.year.fillna(0).astype(int)
-        fuel["Fuel Week Label"] = (
-            "W" + fuel["Fuel Week"].astype(str).str.zfill(2)
-            + " - " + _fwk_year.fillna(0).astype(int).astype(str)
-        )
+        fuel["Fuel Week Label"] = week_label_with_span(fuel["Fuel Week"], _fwk_year, _fwk_start)
         fuel = fuel.loc[fuel[col_fuel_date].dt.year == FILTER_YEAR].copy()
     if col_fuel_cost and col_fuel_cost in fuel.columns:
         fuel[col_fuel_cost] = pd.to_numeric(fuel[col_fuel_cost], errors="coerce")
@@ -1408,10 +1419,7 @@ if repairs_raw is not None and not repairs_raw.empty:
         _rwk_num, _rwk_start, _rwk_year = fri_thu_week(repairs[col_repair_date])
         repairs["Repair Week"] = _rwk_num.fillna(0).astype(int)
         repairs["Repair Year"] = _rwk_start.dt.year.fillna(0).astype(int)
-        repairs["Repair Week Label"] = (
-            "W" + repairs["Repair Week"].astype(str).str.zfill(2)
-            + " - " + _rwk_year.fillna(0).astype(int).astype(str)
-        )
+        repairs["Repair Week Label"] = week_label_with_span(repairs["Repair Week"], _rwk_year, _rwk_start)
         repairs = repairs.loc[repairs[col_repair_date].dt.year == FILTER_YEAR].copy()
     for cost_col in (col_repair_cost, col_engine_cost):
         if cost_col and cost_col in repairs.columns:
@@ -1479,10 +1487,7 @@ if access is not None:
     _awk_num, _awk_start, _awk_year = fri_thu_week(_aw)
     access["Week"] = _awk_num.fillna(0).astype(int)
     access["Year"] = _awk_start.dt.year.fillna(0).astype(int)
-    access["Week Label"] = (
-        "W" + access["Week"].astype(str).str.zfill(2)
-        + " - " + _awk_year.fillna(0).astype(int).astype(str)
-    )
+    access["Week Label"] = week_label_with_span(access["Week"], _awk_year, _awk_start)
     access["Month Label"] = _aw.dt.strftime("%B %Y").fillna("Unassigned Date")
 
 
