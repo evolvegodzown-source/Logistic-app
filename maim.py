@@ -227,12 +227,14 @@ def kpi_card(label, value, description, icon="•", accent=None, weekly=None):
             delta_html = (
                 f"<span style='color:{delta_color};'>{arrow} {abs(delta):.1f}% WoW</span>"
             )
-        weekly_html = f"""
-            <div class="kpi-weekly">
-                <div class="kpi-weekly-row"><span>CW · {cw_txt}</span><span>PW · {pw_txt}</span></div>
-                <div class="kpi-delta">{delta_html}</div>
-            </div>
-        """
+        # Single line: a multi-line string here would inject a whitespace-only
+        # line into the markdown and break the raw HTML block.
+        weekly_html = (
+            f'<div class="kpi-weekly">'
+            f'<div class="kpi-weekly-row"><span>CW · {cw_txt}</span><span>PW · {pw_txt}</span></div>'
+            f'<div class="kpi-delta">{delta_html}</div>'
+            f'</div>'
+        )
     return f"""
         <div class="kpi-card" style="--kpi-accent:{accent};--kpi-soft:{soft};">
             <div class="kpi-top">
