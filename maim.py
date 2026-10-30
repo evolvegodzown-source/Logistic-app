@@ -1080,6 +1080,23 @@ st.markdown(
             border-radius: 14px;
             overflow: hidden;
         }}
+        /* Smaller fonts for the top filter bar only — the filter columns are the
+           element container immediately after the marked Filters heading. */
+        [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] .filters-marker) + [data-testid="stElementContainer"] [data-testid="stSelectbox"] [data-testid="stWidgetLabel"] p {{
+            font-size: .72rem !important;
+        }}
+        [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] .filters-marker) + [data-testid="stElementContainer"] [data-testid="stSelectbox"] div[data-baseweb="select"] > div {{
+            font-size: .78rem;
+            min-height: 32px;
+        }}
+        [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] .filters-marker) + [data-testid="stElementContainer"] [data-testid="stSelectbox"] div[data-baseweb="select"] span {{
+            font-size: .78rem;
+        }}
+        [data-testid="stElementContainer"]:has([data-testid="stMarkdownContainer"] .filters-marker) + [data-testid="stElementContainer"] .stButton button {{
+            font-size: .74rem !important;
+            padding: .3rem .5rem !important;
+            min-height: 32px;
+        }}
     </style>
     """,
     unsafe_allow_html=True,
@@ -1300,9 +1317,10 @@ else:
     df[col_status] = "Unassigned"
     df["Is Delivered"] = False
 
-# Year filter
+# Year filter — keyed off the Fri-Thu week label year so no week appears
+# under the previous year (e.g. W52 - 2025 for early-January shipments).
 if col_date and col_date in df.columns:
-    df = df.loc[df[col_date].dt.year == FILTER_YEAR].copy()
+    df = df.loc[_wk_year == FILTER_YEAR].copy()
 
 
 # ============================================================================
@@ -1335,7 +1353,7 @@ if fuel_raw is not None and not fuel_raw.empty:
         fuel["Fuel Week"] = _fwk_num.fillna(0).astype(int)
         fuel["Fuel Year"] = _fwk_start.dt.year.fillna(0).astype(int)
         fuel["Fuel Week Label"] = week_label_with_span(fuel["Fuel Week"], _fwk_year, _fwk_start)
-        fuel = fuel.loc[fuel[col_fuel_date].dt.year == FILTER_YEAR].copy()
+        fuel = fuel.loc[_fwk_year == FILTER_YEAR].copy()
     if col_fuel_cost and col_fuel_cost in fuel.columns:
         fuel[col_fuel_cost] = pd.to_numeric(fuel[col_fuel_cost], errors="coerce")
 
@@ -1384,6 +1402,8 @@ col_repair_date = None
 col_repair_cost = None
 col_engine_cost = None
 col_repair_desc = None
+col_repair_plate = None
+col_repair_area = None
 
 if repairs_raw is not None and not repairs_raw.empty:
     repairs = repairs_raw.copy()
@@ -1420,7 +1440,7 @@ if repairs_raw is not None and not repairs_raw.empty:
         repairs["Repair Week"] = _rwk_num.fillna(0).astype(int)
         repairs["Repair Year"] = _rwk_start.dt.year.fillna(0).astype(int)
         repairs["Repair Week Label"] = week_label_with_span(repairs["Repair Week"], _rwk_year, _rwk_start)
-        repairs = repairs.loc[repairs[col_repair_date].dt.year == FILTER_YEAR].copy()
+        repairs = repairs.loc[_rwk_year == FILTER_YEAR].copy()
     for cost_col in (col_repair_cost, col_engine_cost):
         if cost_col and cost_col in repairs.columns:
             repairs[cost_col] = pd.to_numeric(repairs[cost_col], errors="coerce")
@@ -1489,6 +1509,7 @@ if access is not None:
     access["Year"] = _awk_start.dt.year.fillna(0).astype(int)
     access["Week Label"] = week_label_with_span(access["Week"], _awk_year, _awk_start)
     access["Month Label"] = _aw.dt.strftime("%B %Y").fillna("Unassigned Date")
+    access = access.loc[access["Year"] == FILTER_YEAR].copy()
 
 
 # ============================================================================
@@ -1572,7 +1593,7 @@ st.markdown(
 # ============================================================================
 st.markdown(
     f"""
-    <div class="section-head" style="margin-top:0">
+    <div class="section-head filters-marker" style="margin-top:0">
         <div class="section-title">🎛️ Filters</div>
     </div>
     """,
@@ -2418,6 +2439,90 @@ elif selected_page == ":material/insights: BI Summary":
             ),
         ]
     )
+
+    # ------------------------------------------------------------------
+    # LOGISTICS COST PER AREA
+    # ------------------------------------------------------------------
+    section_header(
+        "Logistics Cost per Area",
+        "Fuel and maintenance spend grouped by coverage area, using the plate-to-area "
+        "mapping from the Assets and Repairs tabs (respects the Quarter/Month/Week filters).",
+    )
+
+    fuel_area = pd.Series(dtype=float)
+    if fuel_view is not None and col_fuel_cost and col_fuel_plate and col_fuel_plate in fuel_view.columns:
+        _f = fuel_view.dropna(subset=[col_fuel_plate]).copy()
+        _f["_Area"] = _f[col_fuel_plate].map(
+            lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned")
+        )
+        fuel_area = _f.groupby("_Area")[col_fuel_cost].sum()
+
+    repair_area = pd.Series(dtype=float)
+    if repairs_view is not None and (col_repair_cost or col_engine_cost):
+        _r = repairs_view.copy()
+        _r["_cost"] = 0.0
+        for _c in (col_repair_cost, col_engine_cost):
+            if _c and _c in _r.columns:
+                _r["_cost"] = _r["_cost"] + pd.to_numeric(_r[_c], errors="coerce").fillna(0)
+        if col_repair_area and col_repair_area in _r.columns:
+            _r["_Area"] = (
+                _r[col_repair_area].fillna("Unassigned").astype(str).str.strip().replace("", "Unassigned")
+            )
+        elif col_repair_plate and col_repair_plate in _r.columns:
+            _r["_Area"] = _r[col_repair_plate].map(
+                lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned")
+            )
+        else:
+            _r["_Area"] = "Unassigned"
+        repair_area = _r.groupby("_Area")["_cost"].sum()
+
+    area_cost_df = pd.concat(
+        {"Fuel Cost": fuel_area, "Maintenance Cost": repair_area}, axis=1
+    ).fillna(0.0)
+    area_cost_df["Total Cost"] = area_cost_df["Fuel Cost"] + area_cost_df["Maintenance Cost"]
+    area_cost_df = area_cost_df[area_cost_df["Total Cost"] > 0].sort_values("Total Cost", ascending=False)
+
+    if area_cost_df.empty:
+        show_empty_chart("No fuel or maintenance cost records available for the selected period.")
+    else:
+        area_table = area_cost_df.reset_index().rename(columns={"_Area": "Area"})
+        display_area = area_table.copy()
+        for c in ("Fuel Cost", "Maintenance Cost", "Total Cost"):
+            display_area[c] = display_area[c].apply(money)
+        st.dataframe(display_area, use_container_width=True, hide_index=True)
+
+        area_long = area_table.melt(
+            id_vars="Area",
+            value_vars=["Fuel Cost", "Maintenance Cost"],
+            var_name="Cost Type",
+            value_name="Amount",
+        )
+        fig = px.bar(
+            area_long.sort_values("Amount", ascending=True),
+            x="Amount",
+            y="Area",
+            color="Cost Type",
+            orientation="h",
+            barmode="stack",
+            title="Logistics Cost per Area",
+            color_discrete_map={"Fuel Cost": BRAND["green"], "Maintenance Cost": BRAND["amber"]},
+            labels={"Amount": "Cost (₦)", "Area": "Coverage Area"},
+            custom_data=["Cost Type"],
+        )
+        fig.update_traces(
+            hovertemplate="%{y}<br>%{customdata[0]}: ₦%{x:,.0f}<extra></extra>"
+        )
+        fig.update_layout(
+            showlegend=True,
+            height=max(360, min(650, 120 + len(area_table) * 36)),
+            xaxis_title=None,
+            yaxis_title=None,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=-0.22, x=0.5, xanchor="center",
+                font=dict(size=10, color=THEME["muted"]),
+            ),
+        )
+        st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
     section_header(
         "Asset Summary",
