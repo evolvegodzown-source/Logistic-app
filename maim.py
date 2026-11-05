@@ -1244,6 +1244,7 @@ col_status = find_col(df_raw, ["STATUS"], exact_only=True) or find_col(df_raw, [
 col_captain = find_col(df_raw, ["Captain", "Rider", "Driver", "Captain Name"])
 col_vehicle = find_col(df_raw, ["Vehicle Plate No", "Plate Number", "Plate No", "Vehicle", "Vehicle Reg No", "Reg No", "Truck No", "Van Number", "Vehicle No"])
 col_order_type = find_col(df_raw, ["Order Type", "Type", "Category"])
+col_priority = find_col(df_raw, ["Priority", "Client Priority", "Priority Lookup", "Client Prority Lookup"])
 col_ship = find_col(df_raw, ["Ship Date", "Dispatch Date", "Pickup Date"])
 col_dispatch_time = find_col(df_raw, ["Dispatch Time", "Ship Time", "Time Dispatched"])
 col_invoice = find_col(df_raw, ["Invoice Date", "Invoiced Date", "INV Date"])
@@ -1316,6 +1317,16 @@ if col_status and col_status in df.columns:
 else:
     df[col_status] = "Unassigned"
     df["Is Delivered"] = False
+
+# Priority grouping (Priority Client vs Regular) for the TAT-by-priority views
+if col_priority and col_priority in df.columns:
+    df["Priority Group"] = np.where(
+        df[col_priority].astype(str).str.strip().str.lower().str.contains("priority"),
+        "Priority",
+        "Regular",
+    )
+else:
+    df["Priority Group"] = "Regular"
 
 # Year filter — keyed off the Fri-Thu week label year so no week appears
 # under the previous year (e.g. W52 - 2025 for early-January shipments).
@@ -2372,6 +2383,109 @@ elif selected_page == ":material/insights: BI Summary":
     )
 
     # ------------------------------------------------------------------
+    # TAT BY PRIORITY — Priority vs Regular KPIs + stage breakdown table
+    # ------------------------------------------------------------------
+    section_header(
+        "TAT by Priority",
+        "Turnaround time split by client priority. CW = current Fri–Thu week, "
+        "PW = previous week; arrow colours follow TAT logic (green ▼ = faster, "
+        "red ▲ = slower).",
+    )
+
+    _prio_tat_col = "Creation_Delivery_TAT"
+
+    def _round_or_none(value):
+        return round(float(value), 1) if value is not None and pd.notna(value) else None
+
+    _prio_kpis = []
+    for _pname, _pframe, _icon, _accent in (
+        ("Priority TAT: Order → Delivery",
+         filtered[filtered["Priority Group"] == "Priority"], "🚀", BRAND["blue"]),
+        ("Regular TAT: Order → Delivery",
+         filtered[filtered["Priority Group"] == "Regular"], "🗂️", BRAND["teal"]),
+    ):
+        _prio_kpis.append(
+            (
+                _pname,
+                _hrs_or_na(_round_or_none(_pframe[_prio_tat_col].mean())),
+                f"{int(_pframe[_prio_tat_col].notna().sum()):,} deliveries with TAT "
+                "data in the filtered view.",
+                _icon,
+                _accent,
+                _weekly_payload(_pframe, _prio_tat_col),
+            )
+        )
+    render_kpis(_prio_kpis)
+
+    # Stage breakdown (order→invoice, invoice→dispatch, dispatch→delivery,
+    # order→delivery) by priority, with CW vs PW and coloured WoW arrows.
+    _tat_stages = [
+        ("Order → Invoice", "Creation_Invoice_TAT", True),
+        ("Invoice → Dispatch", "Invoice_Dispatch_TAT", False),
+        ("Dispatch → Delivery", "Shipping_TAT", False),
+        ("Order → Delivery", "Creation_Delivery_TAT", False),
+    ]
+
+    def _stage_cw_pw(frame, tat_col):
+        """(CW mean, PW mean) for a frame, honouring the WoW masks."""
+        cw = pw = None
+        if _curr_mask is not None and len(frame):
+            cw_frame = frame.loc[frame.index.intersection(_curr_mask.index[_curr_mask])]
+            if len(cw_frame):
+                cw = _round_or_none(cw_frame[tat_col].mean())
+            pw_frame = frame.loc[frame.index.intersection(_prev_mask.index[_prev_mask])]
+            if len(pw_frame):
+                pw = _round_or_none(pw_frame[tat_col].mean())
+        return cw, pw
+
+    def _delta_text(cw, pw):
+        if cw is None or pw is None or pw == 0:
+            return "N/A"
+        delta = (cw - pw) / abs(pw) * 100.0
+        arrow = "▲" if delta >= 0 else "▼"
+        return f"{arrow} {abs(delta):.1f}%"
+
+    _table_rows = []
+    for _stage_label, _stage_col, _needs_oct_base in _tat_stages:
+        for _pname in ("Priority", "Regular"):
+            _pframe = filtered[filtered["Priority Group"] == _pname]
+            if _needs_oct_base:
+                # Order→Invoice is measured from 1 Oct 2026 onwards only
+                _pframe = _pframe[_pframe["Created_DT"].ge(ORDER_INVOICE_START)]
+            _overall = _round_or_none(_pframe[_stage_col].mean())
+            _cw, _pw = _stage_cw_pw(_pframe, _stage_col)
+            _table_rows.append(
+                {
+                    "TAT Stage": _stage_label,
+                    "Priority": _pname,
+                    "Overall (hrs)": _overall if _overall is not None else "N/A",
+                    "CW (hrs)": _cw if _cw is not None else "N/A",
+                    "PW (hrs)": _pw if _pw is not None else "N/A",
+                    "Δ WoW": _delta_text(_cw, _pw),
+                }
+            )
+
+    _prio_table = pd.DataFrame(_table_rows)
+
+    def _color_delta_column(col):
+        return [
+            (
+                f"color: {BRAND['red']}; font-weight: 700;"
+                if str(v).startswith("▲")
+                else f"color: {BRAND['green']}; font-weight: 700;"
+                if str(v).startswith("▼")
+                else ""
+            )
+            for v in col
+        ]
+
+    st.dataframe(
+        _prio_table.style.apply(_color_delta_column, subset=["Δ WoW"]),
+        hide_index=True,
+        use_container_width=True,
+    )
+
+    # ------------------------------------------------------------------
     # LOGISTICS COSTS
     # ------------------------------------------------------------------
     repairs_view = repairs.copy() if repairs is not None else None
@@ -2402,13 +2516,6 @@ elif selected_page == ":material/insights: BI Summary":
     )
     render_kpis(
         [
-            (
-                "Total Logistics Cost",
-                money(bi_logistics_total),
-                "Combined fuel, maintenance, repair and engine servicing spend for the selected period.",
-                "💸",
-                BRAND["navy"],
-            ),
             (
                 "Total Fuel Cost",
                 money(bi_fuel_total),
