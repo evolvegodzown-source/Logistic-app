@@ -1765,6 +1765,20 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
         _prev_orders[[c for _, c in stage_defs]].notna().all(axis=1).sum()
     ) if len(_prev_orders) else 0
 
+    # --- Stage turnaround by priority: TAT stages on rows, priority on cols --
+    prio_stage_rows = []
+    for step, col_tat in stage_defs:
+        _row = {"TAT stage": step}
+        for _pname in ("Priority", "Regular"):
+            _pc = _curr_orders[_curr_orders["Priority Group"] == _pname]
+            _pp = _prev_orders[_prev_orders["Priority Group"] == _pname]
+            _c_v = _pc[col_tat].mean() if len(_pc) else None
+            _p_v = _pp[col_tat].mean() if len(_pp) else None
+            _row[f"{_pname} · {prev_col}"] = _hrs(_p_v)
+            _row[f"{_pname} · {curr_col}"] = _hrs(_c_v)
+            _row[f"{_pname} · Change"] = _tat_change(_c_v, _p_v)
+        prio_stage_rows.append(_row)
+
     # --- Slide 4: fuel -------------------------------------------------------
     def _fuel_week(start):
         if fuel is None or not col_fuel_date or not col_fuel_cost:
@@ -1873,6 +1887,10 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
     if stage_rows:
         st.dataframe(pd.DataFrame(stage_rows), hide_index=True, use_container_width=True)
         st.caption(f"Deliveries with every time available: {stage_samples_prev} last week; {stage_samples_curr} this week.")
+
+    section_header("Stage turnaround by priority")
+    if prio_stage_rows:
+        st.dataframe(pd.DataFrame(prio_stage_rows), hide_index=True, use_container_width=True)
 
     section_header("Fuel spend")
     fm1, fm2, fm3 = st.columns(3)
