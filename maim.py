@@ -231,23 +231,38 @@ def kpi_card(label, value, description, icon="•", accent=None, weekly=None):
         soft = "rgba(22,134,217,.12)"
     weekly_html = ""
     if weekly:
-        def _fmt_h(v):
+        def _fmt_val(v):
+            # Preformatted strings (e.g. money) pass through untouched.
+            if isinstance(v, str):
+                return v
             return f"{v:.1f}h" if v is not None and pd.notna(v) else "N/A"
 
-        cw_txt = _fmt_h(weekly.get("cw"))
-        pw_txt = _fmt_h(weekly.get("pw"))
-        delta = weekly.get("delta")
-        if delta is None:
-            delta_html = (
-                f"<span style='color:{THEME['muted']};font-size:.75rem;font-weight:800;'>Δ N/A</span>"
-            )
-        else:
+        def _pct_span(delta, note):
+            if delta is None:
+                return (
+                    f"<span style='color:{THEME['muted']};font-size:.75rem;font-weight:800;'>Δ N/A</span>"
+                )
             up = delta >= 0
             delta_color = BRAND["red"] if up else BRAND["green"]
             arrow = "▲" if up else "▼"
-            delta_html = (
-                f"<span style='color:{delta_color};'>{arrow} {abs(delta):.1f}% WoW</span>"
+            return (
+                f"<span style='color:{delta_color};'>{arrow} {abs(delta):.1f}% {note}</span>"
             )
+
+        cw_txt = _fmt_val(weekly.get("cw"))
+        pw_txt = _fmt_val(weekly.get("pw"))
+        cw_delta = weekly.get("cw_delta")
+        pw_delta = weekly.get("pw_delta")
+        if cw_delta is not None or pw_delta is not None:
+            # CW and PW each measured against the benchmark on this card.
+            delta_html = (
+                "<div style='display:flex;justify-content:space-between;gap:8px;'>"
+                f"<span>CW {_pct_span(cw_delta, 'vs bench')}</span>"
+                f"<span>PW {_pct_span(pw_delta, 'vs bench')}</span>"
+                "</div>"
+            )
+        else:
+            delta_html = _pct_span(weekly.get("delta"), "WoW")
         # Single line: a multi-line string here would inject a whitespace-only
         # line into the markdown and break the raw HTML block.
         weekly_html = (
@@ -2173,6 +2188,27 @@ elif selected_page == ":material/oil_barrel: Fueling Cost":
         total_deliveries = int(filtered["Is Delivered"].sum())
         avg_cost_per_delivery = total_fuel_cost / total_deliveries if total_deliveries else 0
 
+        # Benchmark: average weekly fuel spend in 2026, with the current and
+        # previous Fri-Thu weeks measured against it.
+        avg_weekly_fuel = 0.0
+        cw_fuel_spend = 0.0
+        pw_fuel_spend = 0.0
+        cw_vs_bench = None
+        pw_vs_bench = None
+        if col_fuel_date and fuel[col_fuel_date].notna().any():
+            _fw = fuel.dropna(subset=[col_fuel_date])
+            if "Fuel Week" in fuel.columns:
+                _weekly_spend = _fw.groupby("Fuel Week")[col_fuel_cost].sum()
+                avg_weekly_fuel = float(_weekly_spend.mean()) if len(_weekly_spend) else 0.0
+            _anchor = _fw[col_fuel_date].max().normalize()
+            _cw_start = _anchor - pd.Timedelta(days=(_anchor.weekday() - 4) % 7)
+            _pw_start = _cw_start - pd.Timedelta(days=7)
+            cw_fuel_spend = fuel_cost_between(fuel, col_fuel_date, col_fuel_cost, _cw_start, _cw_start + pd.Timedelta(days=7))
+            pw_fuel_spend = fuel_cost_between(fuel, col_fuel_date, col_fuel_cost, _pw_start, _pw_start + pd.Timedelta(days=7))
+            if avg_weekly_fuel:
+                cw_vs_bench = pct_change(cw_fuel_spend, avg_weekly_fuel)
+                pw_vs_bench = pct_change(pw_fuel_spend, avg_weekly_fuel)
+
         section_header("Fueling KPIs")
         render_kpis(
             [
@@ -2204,6 +2240,19 @@ elif selected_page == ":material/oil_barrel: Fueling Cost":
                     "💸",
                     BRAND["teal"],
                 ),
+                (
+                    "Avg Weekly Benchmark",
+                    money(avg_weekly_fuel),
+                    "Average weekly fuel spend in 2026; CW/PW compared against it.",
+                    "🎯",
+                    BRAND["blue_dark"],
+                    {
+                        "cw": money(cw_fuel_spend),
+                        "pw": money(pw_fuel_spend),
+                        "cw_delta": cw_vs_bench,
+                        "pw_delta": pw_vs_bench,
+                    },
+                ),
             ]
         )
 
@@ -2228,6 +2277,31 @@ elif selected_page == ":material/oil_barrel: Fueling Cost":
             )
             fig.update_traces(textposition="outside", cliponaxis=False)
             fig.update_layout(showlegend=False, height=380, yaxis_title=None)
+            st.plotly_chart(plotly_theme(fig), use_container_width=True)
+
+        if col_fuel_plate and fuel_view[col_fuel_plate].notna().any():
+            per_vehicle = (
+                fuel_view.dropna(subset=[col_fuel_plate])
+                .assign(_plate=lambda x: x[col_fuel_plate].astype(str).str.strip().str.upper())
+                .groupby("_plate")[col_fuel_cost]
+                .sum()
+                .sort_values(ascending=False)
+                .head(15)
+                .reset_index()
+                .sort_values(col_fuel_cost)
+            )
+            fig = px.bar(
+                per_vehicle,
+                x=col_fuel_cost,
+                y="_plate",
+                orientation="h",
+                text=col_fuel_cost,
+                title="Fuel Cost per Vehicle (Top 15)",
+                color_discrete_sequence=[BRAND["blue"]],
+                labels={col_fuel_cost: "Fueling Cost (₦)", "_plate": "Vehicle Plate"},
+            )
+            fig.update_traces(textposition="outside", cliponaxis=False)
+            fig.update_layout(showlegend=False, height=480, yaxis_title=None)
             st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
         section_header("Fueling Records", f"{len(fuel_view):,} records from the Fuel tab.")
