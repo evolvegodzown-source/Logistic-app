@@ -85,20 +85,26 @@ def get_login_credentials():
 # ============================================================================
 # HELPERS — DATE / WEEK
 # ============================================================================
+# Business week numbers run one ahead of the ISO week, e.g. the Fri 30 Oct
+# 2026 week is W45 (not W44).
+WEEK_NUM_OFFSET = 1
+
+
 def fri_thu_week(dates):
     """
     Week number, week-start (Friday) and label-year for a datetime Series.
     Weeks run Friday-Thursday and are numbered by the ISO week of the week's
-    Friday (so 16-22 Oct 2026 is W42 and 23-29 Oct 2026 is W43).
+    Friday plus WEEK_NUM_OFFSET (so 23-29 Oct 2026 is W44 and 30 Oct-5 Nov
+    2026 is W45).
     """
     week_start = dates - pd.to_timedelta((dates.dt.weekday - 4) % 7, unit="D")
     iso = week_start.dt.isocalendar()
-    return iso["week"], week_start, iso["year"]
+    return iso["week"] + WEEK_NUM_OFFSET, week_start, iso["year"]
 
 
 def week_start_from_label(year, week):
     """Friday start of the Fri-Thu week numbered (year, week) by its Friday."""
-    iso_monday = pd.Timestamp.fromisocalendar(int(year), int(week), 1)
+    iso_monday = pd.Timestamp.fromisocalendar(int(year), int(week) - WEEK_NUM_OFFSET, 1)
     return iso_monday + pd.Timedelta(days=4)
 
 
@@ -1685,11 +1691,9 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
     _prev_start = _wk_start - pd.Timedelta(days=7)
     _wk_end = _wk_start + pd.Timedelta(days=6)
     _pwk_end = _prev_start + pd.Timedelta(days=6)
-    # Business week numbers run one ahead of the ISO week, e.g. the Fri 30 Oct
-    # 2026 week is W45 (not W44); every other week shifts back with it.
-    _wk_off = 1
-    _wk_num = int(_wk_start.isocalendar()[1]) + _wk_off
-    _pwk_num = int(_prev_start.isocalendar()[1]) + _wk_off
+    # Week numbers include WEEK_NUM_OFFSET, so this week is W45 (see fri_thu_week).
+    _wk_num = int(_wk_start.isocalendar()[1]) + WEEK_NUM_OFFSET
+    _pwk_num = int(_prev_start.isocalendar()[1]) + WEEK_NUM_OFFSET
     week_title = f"Week {_wk_num}: {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%B %Y}"
     prev_title = f"Week {_pwk_num}: {_prev_start.day}\u2013{_pwk_end.day} {_pwk_end:%B %Y}"
     curr_col = f"W{_wk_num:02d} / {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%b}"
@@ -1825,7 +1829,7 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
                     if c and c in _sub.columns
                 )
             )
-        _wlab = f"W{int(_start.isocalendar()[1]) + _wk_off:02d}"
+        _wlab = f"W{int(_start.isocalendar()[1]) + WEEK_NUM_OFFSET:02d}"
         if _rp_prev is None:
             _chg = "\u2014"
         elif _rp_prev == 0:
