@@ -1685,8 +1685,11 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
     _prev_start = _wk_start - pd.Timedelta(days=7)
     _wk_end = _wk_start + pd.Timedelta(days=6)
     _pwk_end = _prev_start + pd.Timedelta(days=6)
-    _wk_num = int(_wk_start.isocalendar()[1])
-    _pwk_num = int(_prev_start.isocalendar()[1])
+    # Business week numbers run one ahead of the ISO week, e.g. the Fri 30 Oct
+    # 2026 week is W45 (not W44); every other week shifts back with it.
+    _wk_off = 1
+    _wk_num = int(_wk_start.isocalendar()[1]) + _wk_off
+    _pwk_num = int(_prev_start.isocalendar()[1]) + _wk_off
     week_title = f"Week {_wk_num}: {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%B %Y}"
     prev_title = f"Week {_pwk_num}: {_prev_start.day}\u2013{_pwk_end.day} {_pwk_end:%B %Y}"
     curr_col = f"W{_wk_num:02d} / {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%b}"
@@ -1822,7 +1825,7 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
                     if c and c in _sub.columns
                 )
             )
-        _wlab = f"W{int(_start.isocalendar()[1]):02d}"
+        _wlab = f"W{int(_start.isocalendar()[1]) + _wk_off:02d}"
         if _rp_prev is None:
             _chg = "\u2014"
         elif _rp_prev == 0:
