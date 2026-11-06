@@ -1694,19 +1694,24 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
 
     _base = comparison_base
     _anchor = comparison_anchor(_base, col_date, selected_week, selected_month) if col_date else None
+    _anchor_defaulted = _anchor is None
     if _anchor is None and col_date and col_date in _base.columns and _base[col_date].notna().any():
         _anchor = _base[col_date].max()
     if _anchor is None:
         st.info("No dated shipment records are available to build the weekly presentation.")
         st.stop()
 
-    # Fri-Thu reporting weeks
+    # Fri-Thu reporting weeks. By default the deck covers the last completed
+    # week vs the one before (with W45 in progress: W44 vs W43); an explicit
+    # Week/Month selection anchors to that period instead.
     _ref = _anchor.normalize()
+    if _anchor_defaulted:
+        _ref = _ref - pd.Timedelta(days=7)
     _wk_start = _ref - pd.Timedelta(days=(_ref.weekday() - 4) % 7)
     _prev_start = _wk_start - pd.Timedelta(days=7)
     _wk_end = _wk_start + pd.Timedelta(days=6)
     _pwk_end = _prev_start + pd.Timedelta(days=6)
-    # Week numbers include WEEK_NUM_OFFSET, so this week is W45 (see fri_thu_week).
+    # Week numbers include WEEK_NUM_OFFSET (see fri_thu_week).
     _wk_num = int(_wk_start.isocalendar()[1]) + WEEK_NUM_OFFSET
     _pwk_num = int(_prev_start.isocalendar()[1]) + WEEK_NUM_OFFSET
     week_title = f"Week {_wk_num}: {_wk_start.day}\u2013{_wk_end.day} {_wk_end:%B %Y}"
