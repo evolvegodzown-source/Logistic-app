@@ -1874,6 +1874,68 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
                 for g, v in _gb.items() if v > 0
             ]
 
+    # --- Total logistics cost: fuel + repairs & maintenance + engine oil ------
+    def _fuel_week_total(start):
+        _f = _fuel_week(start)
+        return float(pd.to_numeric(_f[col_fuel_cost], errors="coerce").sum()) if _f is not None and len(_f) else 0.0
+
+    def _repair_split(start):
+        """(repairs & maintenance, engine oil) spend within the Fri-Thu week."""
+        if repairs is None or not col_repair_date:
+            return 0.0, 0.0
+        _sub = repairs[repairs[col_repair_date].ge(start) & repairs[col_repair_date].lt(start + pd.Timedelta(days=7))]
+        _r = float(pd.to_numeric(_sub[col_repair_cost], errors="coerce").sum()) if col_repair_cost and col_repair_cost in _sub.columns else 0.0
+        _e = float(pd.to_numeric(_sub[col_engine_cost], errors="coerce").sum()) if col_engine_cost and col_engine_cost in _sub.columns else 0.0
+        return _r, _e
+
+    # Benchmark: average weekly total logistics cost across the recorded 2026
+    # weeks (fuel and repairs summed per week, weeks with no spend count as 0).
+    _logistics_week_totals = None
+    if fuel is not None and col_fuel_date and col_fuel_cost and "Fuel Week" in fuel.columns:
+        _fsub = fuel.dropna(subset=[col_fuel_date])
+        _logistics_week_totals = _fsub.groupby("Fuel Week")[col_fuel_cost].sum()
+    if repairs is not None and col_repair_date and "Repair Week" in repairs.columns:
+        _rsub = repairs.dropna(subset=[col_repair_date])
+        _rc = pd.to_numeric(_rsub[col_repair_cost], errors="coerce") if col_repair_cost and col_repair_cost in _rsub.columns else 0.0
+        _ec = pd.to_numeric(_rsub[col_engine_cost], errors="coerce") if col_engine_cost and col_engine_cost in _rsub.columns else 0.0
+        _rw = _rsub.assign(_rc=_rc, _ec=_ec).groupby("Repair Week")[["_rc", "_ec"]].sum().sum(axis=1)
+        _logistics_week_totals = _rw if _logistics_week_totals is None else _logistics_week_totals.add(_rw, fill_value=0)
+    avg_weekly_logistics = float(_logistics_week_totals.mean()) if _logistics_week_totals is not None and len(_logistics_week_totals) else None
+
+    logistics_rows = []
+    for _off in (2, 1, 0):
+        _start = _wk_start - pd.Timedelta(days=7 * _off)
+        _f = _fuel_week_total(_start)
+        _r, _e = _repair_split(_start)
+        _tot = _f + _r + _e
+        _lab = f"W{int(_start.isocalendar()[1]) + WEEK_NUM_OFFSET:02d}"
+        if avg_weekly_logistics:
+            _d = (_tot - avg_weekly_logistics) / avg_weekly_logistics * 100
+            _vs = f"{abs(_d):.1f}% {'increase' if _d >= 0 else 'decrease'} vs avg"
+        else:
+            _vs = "No benchmark"
+        logistics_rows.append(
+            {
+                "Period": _lab,
+                "Fuel": f"\u20a6{_f:,.0f}",
+                "Repairs & Maintenance": f"\u20a6{_r:,.0f}",
+                "Engine oil": f"\u20a6{_e:,.0f}",
+                "Total logistics cost": f"\u20a6{_tot:,.0f}",
+                "vs weekly average": _vs,
+            }
+        )
+    if avg_weekly_logistics is not None:
+        logistics_rows.append(
+            {
+                "Period": "Weekly average (2026)",
+                "Fuel": "\u2014",
+                "Repairs & Maintenance": "\u2014",
+                "Engine oil": "\u2014",
+                "Total logistics cost": f"\u20a6{avg_weekly_logistics:,.0f}",
+                "vs weekly average": "\u2014",
+            }
+        )
+
     # --- Slide 6: actions ----------------------------------------------------
     _prep = _wk_end + pd.Timedelta(days=1)
     action_rows = [
@@ -1944,6 +2006,14 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
             st.dataframe(pd.DataFrame(repair_breakdown), hide_index=True, use_container_width=True)
         else:
             show_empty_chart("No repair records for the current week.")
+
+    section_header("Total logistics cost")
+    st.dataframe(pd.DataFrame(logistics_rows), hide_index=True, use_container_width=True)
+    if avg_weekly_logistics is not None:
+        st.caption(
+            "Total = fuel + repairs & maintenance + engine oil. "
+            f"Weekly average benchmark (2026): \u20a6{avg_weekly_logistics:,.0f}."
+        )
 
     section_header("What needs to happen next")
     st.dataframe(pd.DataFrame(action_rows), hide_index=True, use_container_width=True)
@@ -2050,7 +2120,15 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
             _keys = list(repair_breakdown[0].keys())
             _add_table(s, _keys, [[r[k] for k in _keys] for r in repair_breakdown], top=3.6)
 
-        # Slide 6: actions
+        # Slide 6: total logistics cost
+        s = prs.slides.add_slide(blank)
+        _add_text(s, "Total logistics cost", 0.5, 0.3, 9, 0.7, size=28, bold=True)
+        _add_text(s, "Fuel + repairs & maintenance + engine oil, compared with the average weekly total for 2026.", 0.5, 1.0, 9, 0.4, size=11, color=MUTED)
+        if logistics_rows:
+            _keys = list(logistics_rows[0].keys())
+            _add_table(s, _keys, [[r[k] for k in _keys] for r in logistics_rows], top=1.5)
+
+        # Slide 7: actions
         s = prs.slides.add_slide(blank)
         _add_text(s, "What needs to happen next", 0.5, 0.3, 9, 0.7, size=28, bold=True)
         _add_text(s, f"Proposed owners and dates. Next report: {_wk_start + pd.Timedelta(days=7):%d %b} \u2013 {_wk_end + pd.Timedelta(days=7):%d %b %Y}.", 0.5, 1.0, 9, 0.4, size=11, color=MUTED)
