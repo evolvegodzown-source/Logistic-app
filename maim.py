@@ -2813,6 +2813,146 @@ elif selected_page == ":material/insights: BI Summary":
         )
         st.plotly_chart(plotly_theme(fig), use_container_width=True)
 
+    # ------------------------------------------------------------------
+    # FINANCIAL ANALYSIS — revenue vs logistics cost per territory
+    # ------------------------------------------------------------------
+    section_header(
+        "Financial Analysis",
+        "Revenue per delivery, average logistics cost and logistics cost as a share "
+        "of revenue per territory, for delivered orders. Logistics cost is attributed "
+        "by matching each coverage area to its territory (hub keyword, falling back "
+        "to the modal territory of the plates based in that area).",
+    )
+
+    _fin_orders = filtered[filtered["Is Delivered"]].copy()
+    _fin_orders["_Territory"] = (
+        _fin_orders[col_region].fillna("Unassigned").astype(str).str.strip().replace("", "Unassigned")
+    )
+
+    # Attribute each coverage area's cost to a territory: first by matching the
+    # territory's hub keyword in the area name (e.g. "LAGOS MAINLAND 1" -> Lagos
+    # and Suburbs); areas with no keyword match fall back to the modal territory
+    # of the plates mapped to that area on the Assets/Repairs tabs.
+    _terr_list = sorted(_fin_orders["_Territory"].unique())
+    _terr_tokens = {t: t.split()[0].lower() for t in _terr_list if t and t.lower() != "unassigned"}
+
+    _plate_to_terr = {}
+    if col_vehicle and col_vehicle in _fin_orders.columns:
+        _pt = _fin_orders.dropna(subset=[col_vehicle]).copy()
+        _pt["_p"] = _pt[col_vehicle].astype(str).str.strip().str.upper()
+        _pt = _pt[_pt["_p"] != ""]
+        if len(_pt):
+            _plate_to_terr = (
+                _pt.groupby(["_p", "_Territory"]).size().reset_index(name="_n")
+                .sort_values("_n", ascending=False)
+                .drop_duplicates("_p")
+                .set_index("_p")["_Territory"]
+                .to_dict()
+            )
+
+    _area_to_plates = {}
+    for _p, _a in plate_to_area.items():
+        _area_to_plates.setdefault(str(_a).strip().lower(), []).append(_p)
+
+    def _area_territory(area_name):
+        a = str(area_name).strip().lower()
+        for _t, _tok in _terr_tokens.items():
+            if _tok and _tok in a:
+                return _t
+        for _p in _area_to_plates.get(a, []):
+            if _p in _plate_to_terr:
+                return _plate_to_terr[_p]
+        return None
+
+    _terr_cost = {t: 0.0 for t in _terr_list}
+    if not area_cost_df.empty:
+        for _area_name, _area_cost in area_cost_df["Total Cost"].items():
+            _t = _area_territory(_area_name)
+            if _t is not None:
+                _terr_cost[_t] += float(_area_cost)
+
+    _fin_rows = []
+    for _terr, _grp in _fin_orders.groupby("_Territory"):
+        _deliveries = int(_grp[col_client].count()) if col_client else len(_grp)
+        _revenue = float(_grp[col_value].sum())
+        _cost = _terr_cost.get(_terr, 0.0)
+        _rev_per_del = _revenue / _deliveries if _deliveries else None
+        _avg_cost = _cost / _deliveries if _deliveries else None
+        _pct = (
+            _avg_cost / _rev_per_del * 100.0
+            if (_avg_cost is not None and _rev_per_del and _rev_per_del > 0)
+            else None
+        )
+        _fin_rows.append(
+            {
+                "Territory": _terr,
+                "Deliveries": _deliveries,
+                "Revenue per Delivery": _rev_per_del,
+                "Avg Logistics Cost": _avg_cost,
+                "% Logistic Cost": _pct,
+            }
+        )
+
+    if not _fin_rows:
+        show_empty_chart("No delivered orders in the selected period for a financial analysis.")
+    else:
+        fin_df = pd.DataFrame(_fin_rows).sort_values(
+            "Revenue per Delivery", ascending=False, na_position="last"
+        )
+
+        display_fin = fin_df.copy()
+        display_fin["Revenue per Delivery"] = display_fin["Revenue per Delivery"].apply(
+            lambda v: money(v) if v is not None else "N/A"
+        )
+        display_fin["Avg Logistics Cost"] = display_fin["Avg Logistics Cost"].apply(
+            lambda v: money(v) if v is not None else "N/A"
+        )
+        display_fin["% Logistic Cost"] = display_fin["% Logistic Cost"].apply(
+            lambda v: f"{v:.1f}%" if v is not None else "N/A"
+        )
+        st.dataframe(display_fin, use_container_width=True, hide_index=True)
+
+        fig = go.Figure()
+        fig.add_bar(
+            x=fin_df["Territory"],
+            y=fin_df["Revenue per Delivery"],
+            name="Revenue per Delivery",
+            marker_color=BRAND["green"],
+        )
+        fig.add_bar(
+            x=fin_df["Territory"],
+            y=fin_df["Avg Logistics Cost"],
+            name="Avg Logistics Cost",
+            marker_color=BRAND["amber"],
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=fin_df["Territory"],
+                y=fin_df["% Logistic Cost"],
+                name="% Logistic Cost",
+                mode="lines+markers",
+                yaxis="y2",
+                line=dict(color=BRAND["blue"], width=2),
+            )
+        )
+        fig.update_layout(
+            barmode="group",
+            title="Financial Analysis per Territory",
+            yaxis=dict(title="₦ per delivery"),
+            yaxis2=dict(
+                title="% of revenue",
+                overlaying="y",
+                side="right",
+                rangemode="tozero",
+            ),
+            legend=dict(
+                orientation="h", yanchor="bottom", y=-0.25, x=0.5, xanchor="center",
+                font=dict(size=10, color=THEME["muted"]),
+            ),
+            height=max(360, min(650, 120 + len(fin_df) * 60)),
+        )
+        st.plotly_chart(plotly_theme(fig), use_container_width=True)
+
     section_header(
         "Asset Summary",
         "Operational assets and deliveries from the SHIPMENT DATA tab, plus asset mapping from the ASSET MAPPING tab of the logistics_DB workbook.",
