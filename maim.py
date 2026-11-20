@@ -2819,68 +2819,37 @@ elif selected_page == ":material/insights: BI Summary":
     section_header(
         "Financial Analysis",
         "Revenue per delivery, average logistics cost and logistics cost as a share "
-        "of revenue per territory, for delivered orders. Logistics cost is attributed "
-        "by matching each coverage area to its territory (hub keyword, falling back "
-        "to the modal territory of the plates based in that area).",
+        "of revenue per territory (coverage area). Deliveries are assigned to a "
+        "territory through the vehicle plate mapping from the Assets and Repairs "
+        "tabs; costs are the fuel plus maintenance spend recorded for that area.",
     )
 
     _fin_orders = filtered[filtered["Is Delivered"]].copy()
-    _fin_orders["_Territory"] = (
-        _fin_orders[col_region].fillna("Unassigned").astype(str).str.strip().replace("", "Unassigned")
-    )
-
-    # Attribute each coverage area's cost to a territory: first by matching the
-    # territory's hub keyword in the area name (e.g. "LAGOS MAINLAND 1" -> Lagos
-    # and Suburbs); areas with no keyword match fall back to the modal territory
-    # of the plates mapped to that area on the Assets/Repairs tabs.
-    _terr_list = sorted(_fin_orders["_Territory"].unique())
-    _terr_tokens = {t: t.split()[0].lower() for t in _terr_list if t and t.lower() != "unassigned"}
-
-    _plate_to_terr = {}
     if col_vehicle and col_vehicle in _fin_orders.columns:
-        _pt = _fin_orders.dropna(subset=[col_vehicle]).copy()
-        _pt["_p"] = _pt[col_vehicle].astype(str).str.strip().str.upper()
-        _pt = _pt[_pt["_p"] != ""]
-        if len(_pt):
-            _plate_to_terr = (
-                _pt.groupby(["_p", "_Territory"]).size().reset_index(name="_n")
-                .sort_values("_n", ascending=False)
-                .drop_duplicates("_p")
-                .set_index("_p")["_Territory"]
-                .to_dict()
-            )
+        _fin_orders["_Territory"] = (
+            _fin_orders[col_vehicle]
+            .map(lambda p: plate_to_area.get(str(p).strip().upper(), "Unassigned"))
+            .astype(str).str.strip().str.upper()
+        )
+    else:
+        _fin_orders["_Territory"] = "UNASSIGNED"
 
-    _area_to_plates = {}
-    for _p, _a in plate_to_area.items():
-        _area_to_plates.setdefault(str(_a).strip().lower(), []).append(_p)
-
-    def _area_territory(area_name):
-        a = str(area_name).strip().lower()
-        for _t, _tok in _terr_tokens.items():
-            if _tok and _tok in a:
-                return _t
-        for _p in _area_to_plates.get(a, []):
-            if _p in _plate_to_terr:
-                return _plate_to_terr[_p]
-        return None
-
-    _terr_cost = {t: 0.0 for t in _terr_list}
-    if not area_cost_df.empty:
-        for _area_name, _area_cost in area_cost_df["Total Cost"].items():
-            _t = _area_territory(_area_name)
-            if _t is not None:
-                _terr_cost[_t] += float(_area_cost)
+    _cost_lookup = (
+        {str(k).strip().upper(): float(v) for k, v in area_cost_df["Total Cost"].items()}
+        if not area_cost_df.empty
+        else {}
+    )
 
     _fin_rows = []
     for _terr, _grp in _fin_orders.groupby("_Territory"):
         _deliveries = int(_grp[col_client].count()) if col_client else len(_grp)
         _revenue = float(_grp[col_value].sum())
-        _cost = _terr_cost.get(_terr, 0.0)
+        _cost = _cost_lookup.get(_terr, 0.0)
         _rev_per_del = _revenue / _deliveries if _deliveries else None
         _avg_cost = _cost / _deliveries if _deliveries else None
         _pct = (
-            _avg_cost / _rev_per_del * 100.0
-            if (_avg_cost is not None and _rev_per_del and _rev_per_del > 0)
+            _cost / _revenue * 100.0
+            if (_revenue and _revenue > 0 and _deliveries)
             else None
         )
         _fin_rows.append(
@@ -2893,6 +2862,20 @@ elif selected_page == ":material/insights: BI Summary":
             }
         )
 
+    # Areas with recorded cost but no delivered orders in the filtered view
+    _known = {r["Territory"] for r in _fin_rows}
+    for _area_name, _area_cost in _cost_lookup.items():
+        if _area_name not in _known and _area_cost > 0:
+            _fin_rows.append(
+                {
+                    "Territory": _area_name,
+                    "Deliveries": 0,
+                    "Revenue per Delivery": None,
+                    "Avg Logistics Cost": None,
+                    "% Logistic Cost": None,
+                }
+            )
+
     if not _fin_rows:
         show_empty_chart("No delivered orders in the selected period for a financial analysis.")
     else:
@@ -2902,13 +2885,13 @@ elif selected_page == ":material/insights: BI Summary":
 
         display_fin = fin_df.copy()
         display_fin["Revenue per Delivery"] = display_fin["Revenue per Delivery"].apply(
-            lambda v: money(v) if v is not None else "N/A"
+            lambda v: money(v) if pd.notna(v) else "N/A"
         )
         display_fin["Avg Logistics Cost"] = display_fin["Avg Logistics Cost"].apply(
-            lambda v: money(v) if v is not None else "N/A"
+            lambda v: money(v) if pd.notna(v) else "N/A"
         )
         display_fin["% Logistic Cost"] = display_fin["% Logistic Cost"].apply(
-            lambda v: f"{v:.1f}%" if v is not None else "N/A"
+            lambda v: f"{v:.1f}%" if pd.notna(v) else "N/A"
         )
         st.dataframe(display_fin, use_container_width=True, hide_index=True)
 
