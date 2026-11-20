@@ -46,6 +46,14 @@ COVER_LOGO_URL = (
 )
 FILTER_YEAR = 2026
 
+# Contract agreement: order-to-delivery turnaround target in hours, keyed by
+# the Destination values recorded on the Shipment Data tab.
+CONTRACT_TAT_HRS = {
+    "Within Lagos": 24.0,
+    "Badagry/Ibeju/Epe": 48.0,
+    "Abeokuta/Ifo/Sagamu": 96.0,  # contract: Ifo/Abeokuta/Sagamu/Ofada
+}
+
 BRAND = {
     "blue": "#1686D9",
     "blue_dark": "#0B5FA5",
@@ -1271,6 +1279,7 @@ col_dispatch_time = find_col(df_raw, ["Dispatch Time", "Ship Time", "Time Dispat
 col_invoice = find_col(df_raw, ["Invoice Date", "Invoiced Date", "INV Date"])
 col_deliv = find_col(df_raw, ["Delivery Date", "Delivered Date"])
 col_delivery_time = find_col(df_raw, ["Delivery Time", "Time Delivered"])
+col_destination = find_col(df_raw, ["Destination", "Delivery Destination"])
 
 if not col_client:
     st.error("Unable to identify the Client column automatically in the dataset.")
@@ -1806,6 +1815,38 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
             _row[f"{_pname} · Change"] = _tat_change(_c_v, _p_v)
         prio_stage_rows.append(_row)
 
+    # --- TAT by destination vs contract: CW and PW --------------------------
+    dest_rows = []
+    if col_destination and col_destination in _base.columns:
+        for _dname, _contract in CONTRACT_TAT_HRS.items():
+            _dc = _curr_orders[
+                _curr_orders[col_destination].astype(str).str.strip() == _dname
+            ]
+            _dp = _prev_orders[
+                _prev_orders[col_destination].astype(str).str.strip() == _dname
+            ]
+            _c_v = _dc["Creation_Delivery_TAT"].mean() if len(_dc) else None
+            _p_v = _dp["Creation_Delivery_TAT"].mean() if len(_dp) else None
+
+            def _vs_contract(value):
+                if value is None or pd.isna(value):
+                    return "No record"
+                _pct = (value - _contract) / _contract * 100
+                if abs(_pct) < 0.5:
+                    return "At contract"
+                return f"{abs(_pct):.0f}% {'over' if _pct > 0 else 'under'}"
+
+            dest_rows.append(
+                {
+                    "Destination": _dname,
+                    "Contract (hrs)": f"{_contract:.0f}",
+                    prev_col: _hrs(_p_v),
+                    curr_col: _hrs(_c_v),
+                    "PW vs contract": _vs_contract(_p_v),
+                    "CW vs contract": _vs_contract(_c_v),
+                }
+            )
+
     # --- Slide 4: fuel -------------------------------------------------------
     def _fuel_week(start):
         if fuel is None or not col_fuel_date or not col_fuel_cost:
@@ -1981,6 +2022,16 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
     if prio_stage_rows:
         st.dataframe(pd.DataFrame(prio_stage_rows), hide_index=True, use_container_width=True)
 
+    section_header(
+        "Order to delivery vs contract by destination",
+        "Order-to-delivery turnaround per destination against the contract agreement "
+        "(Within Lagos 24 hrs · Badagry/Ibeju/Epe 48 hrs · Ifo/Abeokuta/Sagamu/Ofada 96 hrs).",
+    )
+    if dest_rows:
+        st.dataframe(pd.DataFrame(dest_rows), hide_index=True, use_container_width=True)
+    else:
+        show_empty_chart("No destination data available for the selected weeks.")
+
     section_header("Fuel spend")
     fm1, fm2, fm3 = st.columns(3)
     fm1.metric(f"Fuel total \u00b7 W{_wk_num:02d}", f"\u20a6{fuel_total:,.0f}")
@@ -2098,6 +2149,16 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
             _keys = list(stage_rows[0].keys())
             _add_table(s, _keys, [[r[k] for k in _keys] for r in stage_rows])
         _add_text(s, f"Deliveries with every time available: {stage_samples_prev} last week; {stage_samples_curr} this week.", 0.5, 4.2, 9, 0.4, size=12, color=MUTED)
+
+        # Slide 3b: order to delivery vs contract by destination
+        s = prs.slides.add_slide(blank)
+        _add_text(s, "Order to delivery vs contract, by destination", 0.5, 0.3, 9, 0.7, size=28, bold=True)
+        _add_text(s, "Contract agreement: Within Lagos 24 hrs · Badagry/Ibeju/Epe 48 hrs · Ifo/Abeokuta/Sagamu/Ofada 96 hrs. Positive = slower than contract.", 0.5, 1.0, 9, 0.5, size=11, color=MUTED)
+        if dest_rows:
+            _keys = list(dest_rows[0].keys())
+            _add_table(s, _keys, [[r[k] for k in _keys] for r in dest_rows])
+        else:
+            _add_text(s, "No destination data available for the selected weeks.", 0.5, 1.8, 9, 0.4, size=14)
 
         # Slide 4: fuel
         s = prs.slides.add_slide(blank)
@@ -2563,6 +2624,87 @@ elif selected_page == ":material/insights: BI Summary":
             for label, frame, tat_col, icon, accent in tat_kpis
         ]
     )
+
+    # ------------------------------------------------------------------
+    # ORDER → DELIVERY vs CONTRACT — KPI cards per destination
+    # ------------------------------------------------------------------
+    if col_destination and col_destination in filtered.columns:
+        _dest_frame = filtered.dropna(subset=["Creation_Delivery_TAT"])
+        _dest_cards = []
+        _dest_table = []
+        for _dname, _contract in CONTRACT_TAT_HRS.items():
+            _d = _dest_frame[
+                _dest_frame[col_destination].astype(str).str.strip() == _dname
+            ]
+            _avg = _d["Creation_Delivery_TAT"].mean() if len(_d) else None
+            _n = int(_d["Creation_Delivery_TAT"].notna().sum())
+            if _avg is not None and pd.notna(_avg):
+                _var = (_avg - _contract) / _contract * 100.0
+                _var_txt = f"{'+' if _var >= 0 else ''}{_var:.1f}% vs contract"
+                _desc = (
+                    f"{_var_txt} ({_contract:.0f} hrs) · {_n:,} timed deliveries "
+                    "in the filtered view."
+                )
+                _accent = BRAND["red"] if _var > 0 else BRAND["green"]
+                # kpi_card does not render the description, so the variance goes
+                # on a second line inside the value itself.
+                _value = (
+                    f"{_avg:.1f} hrs"
+                    f"<br><span style='font-size:.82rem;font-weight:700;color:{_accent};'>"
+                    f"{'+' if _var >= 0 else ''}{_var:.1f}% vs {_contract:.0f}h contract</span>"
+                )
+            else:
+                _var = None
+                _var_txt = "N/A"
+                _desc = (
+                    f"No timed deliveries for this destination in the filtered view. "
+                    f"Contract: {_contract:.0f} hrs."
+                )
+                _accent = BRAND["blue"]
+                _value = "N/A"
+            _dest_cards.append(
+                (
+                    f"Order → Delivery · {_dname}",
+                    _value,
+                    _desc,
+                    "📍",
+                    _accent,
+                )
+            )
+            _dest_table.append(
+                {
+                    "Destination": _dname,
+                    "Contract (hrs)": f"{_contract:.0f}",
+                    "Avg Order → Delivery (hrs)": round(float(_avg), 1) if _avg is not None and pd.notna(_avg) else None,
+                    "Variance %": _var,
+                    "Timed deliveries": _n,
+                }
+            )
+
+        render_kpis(_dest_cards)
+
+        _dest_disp = pd.DataFrame(_dest_table)
+
+        def _variance_style(col):
+            return [
+                (
+                    f"color: {BRAND['red']}; font-weight: 700;"
+                    if pd.notna(v) and v > 0
+                    else f"color: {BRAND['green']}; font-weight: 700;"
+                    if pd.notna(v)
+                    else ""
+                )
+                for v in col
+            ]
+
+        st.dataframe(
+            _dest_disp.style.apply(_variance_style, subset=["Variance %"]).format({
+                "Avg Order → Delivery (hrs)": lambda v: f"{v:.1f}" if pd.notna(v) else "N/A",
+                "Variance %": lambda v: f"{'+' if v >= 0 else ''}{v:.1f}%" if pd.notna(v) else "N/A",
+            }),
+            hide_index=True,
+            use_container_width=True,
+        )
 
     # ------------------------------------------------------------------
     # TAT BY PRIORITY — Priority vs Regular KPIs + stage breakdown table
