@@ -52,6 +52,7 @@ CONTRACT_TAT_HRS = {
     "Within Lagos": 24.0,
     "Badagry/Ibeju/Epe": 48.0,
     "Abeokuta/Ifo/Sagamu": 96.0,  # contract: Ifo/Abeokuta/Sagamu/Ofada
+    "Outstation": 72.0,
 }
 
 BRAND = {
@@ -2025,7 +2026,8 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
     section_header(
         "Order to delivery vs contract by destination",
         "Order-to-delivery turnaround per destination against the contract agreement "
-        "(Within Lagos 24 hrs · Badagry/Ibeju/Epe 48 hrs · Ifo/Abeokuta/Sagamu/Ofada 96 hrs).",
+        "(Within Lagos 24 hrs · Badagry/Ibeju/Epe 48 hrs · Outstation 72 hrs · "
+        "Ifo/Abeokuta/Sagamu/Ofada 96 hrs).",
     )
     if dest_rows:
         st.dataframe(pd.DataFrame(dest_rows), hide_index=True, use_container_width=True)
@@ -2153,7 +2155,7 @@ if selected_page == ":material/slides: Weekly meeting Presentation":
         # Slide 3b: order to delivery vs contract by destination
         s = prs.slides.add_slide(blank)
         _add_text(s, "Order to delivery vs contract, by destination", 0.5, 0.3, 9, 0.7, size=28, bold=True)
-        _add_text(s, "Contract agreement: Within Lagos 24 hrs · Badagry/Ibeju/Epe 48 hrs · Ifo/Abeokuta/Sagamu/Ofada 96 hrs. Positive = slower than contract.", 0.5, 1.0, 9, 0.5, size=11, color=MUTED)
+        _add_text(s, "Contract agreement: Within Lagos 24 hrs · Badagry/Ibeju/Epe 48 hrs · Outstation 72 hrs · Ifo/Abeokuta/Sagamu/Ofada 96 hrs. Positive = slower than contract.", 0.5, 1.0, 9, 0.5, size=11, color=MUTED)
         if dest_rows:
             _keys = list(dest_rows[0].keys())
             _add_table(s, _keys, [[r[k] for k in _keys] for r in dest_rows])
